@@ -12,14 +12,37 @@ export async function participantApp(root, token) {
     return;
   }
   const { participant, survey } = data;
-  if (participant.status === 'submitted') return done(`Vielen Dank, ${participant.name}!`, 'Deine Antworten wurden abgegeben. Die Auswertung erfolgt durch deinen Ausbilder.');
+  if (participant.status === 'submitted') return done(`Vielen Dank, ${participant.name}!`, 'Deine Antworten wurden abgegeben.', data.results);
   if (participant.status === 'closed') return done('Abfrage nicht verfügbar', 'Diese Abfrage ist aktuell nicht geöffnet. Bitte wende dich an deinen Ausbilder.');
 
-  function done(title, text) {
-    clear(root).append(shell(h('div', { class: 'card center' }, h('div', { class: 'bigcheck' }, '✓'), h('h1', {}, title), h('p', {}, text))));
+  function done(title, text, results) {
+    const LV = { low: ['Schulungsbedarf', 'lv-low'], mid: ['Auffrischung', 'lv-mid'], ok: ['Sicher', 'lv-ok'], pending: ['wird noch bewertet', 'lv-pending'] };
+    const res = results ? h('div', { class: 'myresults' }, h('h2', {}, 'Dein Ergebnis'),
+      results.topics.map((t) => h('div', { class: 'tbar' }, h('div', { class: 'tlabel' }, h('b', {}, t.name)),
+        h('div', { class: 'track' }, h('div', { class: 'fill ' + LV[t.level][1], style: { width: (t.pct ?? 0) + '%' } })), h('div', { class: 'tpct' }, t.pct === null ? '–' : t.pct + ' %'), h('span', { class: 'badge ' + LV[t.level][1] }, LV[t.level][0]))),
+      results.pending ? h('p', { class: 'muted small' }, 'Einige Aufgaben (Zeichnen/Praxis) werden noch bewertet; das Ergebnis kann sich ändern.') : null) : h('p', { class: 'muted' }, 'Die Auswertung erfolgt durch deinen Ausbilder.');
+    clear(root).append(shell(h('div', { class: 'card center' }, h('div', { class: 'bigcheck' }, '✓'), h('h1', {}, title), h('p', {}, text), res)));
   }
 
   const { questions, answers } = data;
+  const skew = data.now ? new Date(data.now).getTime() - Date.now() : 0; // Server-/Client-Zeitabweichung
+  const deadline = data.deadline ? new Date(data.deadline).getTime() - skew : null;
+  const timer = h('span', { class: 'timer' });
+  let expired = false;
+  if (deadline) {
+    const tick = async () => {
+      const left = Math.max(0, deadline - Date.now());
+      const m = Math.floor(left / 60000), sec = String(Math.floor((left % 60000) / 1000)).padStart(2, '0');
+      timer.textContent = `⏱ ${m}:${sec}`;
+      timer.classList.toggle('low', left < 120000);
+      if (left <= 0 && !expired) {
+        expired = true; clearInterval(iv);
+        try { await flush(); await api(`/p/${encodeURIComponent(token)}/submit`, { method: 'POST', body: {} }); } catch { /* Server gibt ohnehin ab */ }
+        done('Zeit abgelaufen', 'Deine bisherigen Antworten wurden automatisch abgegeben.');
+      }
+    };
+    var iv = setInterval(tick, 1000); tick();
+  }
   let idx = -1; // -1 = Startseite, questions.length = Übersicht
   const saveState = h('span', { class: 'savestate muted small' });
   const pending = new Map();
@@ -98,14 +121,15 @@ export async function participantApp(root, token) {
     try {
       await flush();
       await api(`/p/${encodeURIComponent(token)}/submit`, { method: 'POST', body: {} });
-      done(`Vielen Dank, ${participant.name}!`, 'Deine Antworten wurden abgegeben. Die Auswertung erfolgt durch deinen Ausbilder.');
+      clearInterval(iv);
+      location.reload();
     } catch (e) { toast(e.message, 'err'); }
   }
 
   function render() {
     const body = idx < 0 ? start() : idx >= questions.length ? overview() : question();
     clear(root).append(h('div', { class: 'p-shell' },
-      h('header', { class: 'p-head' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'), idx >= 0 ? progress() : null, h('span', { class: 'who muted small' }, participant.name)),
+      h('header', { class: 'p-head' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'), idx >= 0 ? progress() : null, timer, h('span', { class: 'who muted small' }, participant.name)),
       h('main', { class: 'p-main' }, body)));
   }
   render();

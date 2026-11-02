@@ -3,7 +3,7 @@ import { h, api, clear, toast, LEVEL, fmtDate } from './dom.js';
 import { questionEditor } from './qeditor.js';
 import { reviewView, gradePanel } from './review.js';
 
-let root, meta;
+let root, meta, me;
 const link = (token) => `${location.origin}/t/${token}`;
 const pctText = (p) => (p === null || p === undefined ? '–' : p + ' %');
 const STATUS = { draft: ['Entwurf', 'lv-pending'], open: ['Geöffnet', 'lv-ok'], closed: ['Geschlossen', 'lv-mid'] };
@@ -11,25 +11,28 @@ const PSTATUS = { invited: ['Eingeladen', 'lv-pending'], started: ['In Bearbeitu
 
 export async function adminApp(el) {
   root = el;
-  const me = await api('/me');
-  if (!me.admin) return loginPage();
+  const who = await api('/me');
+  if (!who.admin) return loginPage();
+  me = who.user;
   meta = await api('/meta');
   window.addEventListener('hashchange', route);
   route();
 }
 
 function loginPage() {
-  const pw = h('input', { type: 'password', placeholder: 'Admin-Passwort', autofocus: true, autocomplete: 'current-password' });
+  const user = h('input', { type: 'text', placeholder: 'Benutzername', value: 'admin', autocomplete: 'username' });
+  const pw = h('input', { type: 'password', placeholder: 'Passwort', autofocus: true, autocomplete: 'current-password' });
   clear(root).append(h('div', { class: 'login' }, h('form', { class: 'card center', onsubmit: async (e) => {
     e.preventDefault();
-    try { await api('/login', { method: 'POST', body: { password: pw.value } }); location.hash = '#/surveys'; adminApp(root); } catch (err) { toast(err.message, 'err'); pw.select(); }
-  } }, h('div', { class: 'brand big' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'), h('p', { class: 'muted' }, 'Admin-Bereich'), pw, h('button', { class: 'btn primary', type: 'submit' }, 'Anmelden'))));
+    try { await api('/login', { method: 'POST', body: { username: user.value, password: pw.value } }); location.hash = '#/surveys'; adminApp(root); } catch (err) { toast(err.message, 'err'); pw.select(); }
+  } }, h('div', { class: 'brand big' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'), h('p', { class: 'muted' }, 'Admin-Bereich'), user, pw, h('button', { class: 'btn primary', type: 'submit' }, 'Anmelden'))));
 }
 
 function layout(active, ...content) {
   clear(root).append(
     h('header', { class: 'a-head noprint' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'),
-      h('nav', {}, h('a', { href: '#/surveys', class: active === 'surveys' ? 'on' : '' }, 'Abfragen'), h('a', { href: '#/questions', class: active === 'questions' ? 'on' : '' }, 'Fragenkatalog')),
+      h('nav', {}, h('a', { href: '#/surveys', class: active === 'surveys' ? 'on' : '' }, 'Abfragen'), h('a', { href: '#/questions', class: active === 'questions' ? 'on' : '' }, 'Fragenkatalog'), h('a', { href: '#/users', class: active === 'users' ? 'on' : '' }, 'Benutzer')),
+      h('span', { class: 'muted small' }, me?.username),
       h('button', { class: 'btn small', onclick: async () => { await api('/logout', { method: 'POST', body: {} }); adminApp(root); } }, 'Abmelden')),
     h('main', { class: 'a-main' }, ...content));
 }
@@ -41,6 +44,7 @@ async function route() {
     if (page === 'results') return await resultsPage(id);
     if (page === 'participant') return await participantPage(id);
     if (page === 'questions') return await questionsPage();
+    if (page === 'users') return await usersPage();
     return await surveysPage();
   } catch (e) {
     if (e.status === 401) return adminApp(root);
@@ -68,6 +72,11 @@ async function surveyPage(id) {
   let selected = s.questions.map((q) => q.id);
   const title = h('input', { type: 'text', value: s.title });
   const desc = h('textarea', { rows: 2 }, s.description);
+  const limit = h('input', { type: 'number', min: 0, placeholder: 'kein Limit', value: s.time_limit_min || '' });
+  const low = h('input', { type: 'number', min: 0, max: 100, value: s.threshold_low });
+  const high = h('input', { type: 'number', min: 0, max: 100, value: s.threshold_high });
+  const showRes = h('input', { type: 'checkbox', checked: s.show_results });
+  const settings = () => ({ title: title.value, description: desc.value, time_limit_min: limit.value || null, threshold_low: Number(low.value), threshold_high: Number(high.value), show_results: showRes.checked });
   const patch = async (body, msg) => { await api(`/surveys/${id}`, { method: 'PUT', body }); if (msg) toast(msg, 'ok'); return surveyPage(id); };
 
   // Fragenauswahl nach Themenbereich
@@ -89,9 +98,16 @@ async function surveyPage(id) {
     h('div', { class: 'card' },
       h('h2', {}, 'Grunddaten & Status'),
       h('div', { class: 'two' }, h('label', { class: 'field' }, h('span', {}, 'Titel'), title), h('label', { class: 'field' }, h('span', {}, 'Beschreibung für Teilnehmer'), desc)),
+      h('h3', {}, 'Optionen'),
+      h('div', { class: 'three' },
+        h('label', { class: 'field' }, h('span', {}, 'Zeitlimit in Minuten (leer = keins)'), limit),
+        h('label', { class: 'field' }, h('span', {}, 'Schwelle „Schulungsbedarf“ (unter … %)'), low),
+        h('label', { class: 'field' }, h('span', {}, 'Schwelle „Auffrischung“ (unter … %)'), high)),
+      h('label', { class: 'symopt' }, showRes, ' Teilnehmern nach der Abgabe ihr Ergebnis (je Themenbereich) anzeigen'),
+      h('p', { class: 'hint' }, 'Das Zeitlimit läuft ab dem ersten Öffnen des Links; danach wird automatisch abgegeben.'),
       h('div', { class: 'row' },
-        h('button', { class: 'btn', onclick: () => patch({ title: title.value, description: desc.value }, 'Gespeichert') }, 'Speichern'),
-        s.status !== 'open' ? h('button', { class: 'btn primary', onclick: () => { if (!s.questions.length) return toast('Bitte zuerst Aufgaben auswählen und speichern', 'err'); patch({ status: 'open' }, 'Abfrage geöffnet – Links sind aktiv'); } }, 'Abfrage öffnen') : h('button', { class: 'btn', onclick: () => patch({ status: 'closed' }, 'Abfrage geschlossen') }, 'Abfrage schließen'),
+        h('button', { class: 'btn', onclick: () => patch(settings(), 'Gespeichert') }, 'Speichern'),
+        s.status !== 'open' ? h('button', { class: 'btn primary', onclick: () => { if (!s.questions.length) return toast('Bitte zuerst Aufgaben auswählen und speichern', 'err'); patch({ ...settings(), status: 'open' }, 'Abfrage geöffnet – Links sind aktiv'); } }, 'Abfrage öffnen') : h('button', { class: 'btn', onclick: () => patch({ status: 'closed' }, 'Abfrage geschlossen') }, 'Abfrage schließen'),
         h('a', { class: 'btn', href: `#/results/${id}` }, 'Zur Auswertung →'),
         h('button', { class: 'btn danger', onclick: async () => { if (confirm('Abfrage inkl. aller Antworten endgültig löschen?')) { await api(`/surveys/${id}`, { method: 'DELETE' }); location.hash = '#/surveys'; } } }, 'Löschen'))),
 
@@ -224,4 +240,22 @@ async function participantPage(id) {
         h('div', { class: 'row' }, h('span', { class: 'badge ' + LEVEL[p.level].cls }, LEVEL[p.level].label), h('b', {}, p.topic), h('span', { class: 'muted' }, pctText(p.pct))),
         p.objectives.length ? h('ul', {}, p.objectives.map((o) => h('li', {}, o))) : h('p', { class: 'muted small' }, 'Keine einzelnen Lernziele hinterlegt.'))) : h('p', {}, r.pendingCount ? 'Noch keine Schwächen erkennbar – bitte zuerst offene Bewertungen abschließen.' : 'Keine Schwächen festgestellt. 🎉')),
     h('div', { class: 'card' }, h('h2', {}, 'Einzelne Aufgaben'), taskCards));
+}
+
+// ------------------------------------------------------------------ Benutzer
+async function usersPage() {
+  const users = await api('/users');
+  const name = h('input', { type: 'text', placeholder: 'Benutzername', autocomplete: 'off' });
+  const pw = h('input', { type: 'password', placeholder: 'Passwort (min. 6 Zeichen)', autocomplete: 'new-password' });
+  layout('users',
+    h('div', { class: 'pagehead' }, h('h1', {}, 'Benutzer')),
+    h('p', { class: 'muted' }, 'Alle Benutzer haben vollen Admin-Zugriff auf Abfragen, Fragen und Auswertungen.'),
+    h('div', { class: 'card flush' }, h('table', { class: 'tbl' },
+      h('thead', {}, h('tr', {}, ['Benutzer', 'Angelegt', ''].map((t) => h('th', {}, t)))),
+      h('tbody', {}, users.map((u) => h('tr', {}, h('td', {}, h('b', {}, u.username), u.id === me.id ? h('span', { class: 'muted' }, ' (du)') : null), h('td', {}, fmtDate(u.created_at)),
+        h('td', { class: 'right' },
+          h('button', { class: 'btn small', onclick: async () => { const p = prompt(`Neues Passwort für ${u.username}:`); if (p) { try { await api(`/users/${u.id}/password`, { method: 'PUT', body: { password: p } }); toast('Passwort geändert', 'ok'); } catch (e) { toast(e.message, 'err'); } } } }, 'Passwort ändern'), ' ',
+          u.id !== me.id ? h('button', { class: 'btn small danger', onclick: async () => { if (confirm(`Benutzer ${u.username} löschen?`)) { await api(`/users/${u.id}`, { method: 'DELETE' }); usersPage(); } } }, '✕') : null)))))),
+    h('form', { class: 'card row', onsubmit: async (e) => { e.preventDefault(); try { await api('/users', { method: 'POST', body: { username: name.value, password: pw.value } }); toast('Benutzer angelegt', 'ok'); usersPage(); } catch (err) { toast(err.message, 'err'); } } },
+      name, pw, h('button', { class: 'btn primary', type: 'submit' }, '+ Benutzer anlegen')));
 }

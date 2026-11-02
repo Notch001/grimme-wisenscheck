@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { q, initDb, pool } from './db.js';
 import { grade, sanitize, validateQuestion, TYPES } from './grading.js';
 import { evaluate, surveyQuestions, participantAnswers } from './results.js';
-import { checkPassword, issueCookie, clearCookie, isAdmin, requireAdmin, newToken } from './auth.js';
+import { login, issueCookie, clearCookie, currentUser, requireAdmin, newToken, ensureAdminUser, hashPassword } from './auth.js';
 import { seedIfEmpty } from './seed.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -27,35 +27,87 @@ const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
 // ---------------------------------------------------------------- Login
-app.post('/api/login', (req, res) => {
-  if (!checkPassword(req.body?.password)) return bad(res, 'Falsches Passwort', 401);
-  issueCookie(res);
+app.post('/api/login', wrap(async (req, res) => {
+  const u = await login(req.body?.username, req.body?.password);
+  if (!u) return bad(res, 'Benutzername oder Passwort falsch', 401);
+  issueCookie(res, u.id);
   res.json({ ok: true });
-});
+}));
 app.post('/api/logout', (req, res) => { clearCookie(res); res.json({ ok: true }); });
-app.get('/api/me', (req, res) => res.json({ admin: isAdmin(req) }));
+app.get('/api/me', wrap(async (req, res) => { const u = await currentUser(req); res.json({ admin: !!u, user: u }); }));
+
+// ---------------------------------------------------------------- Admin: Benutzer
+app.get('/api/users', requireAdmin, wrap(async (req, res) => {
+  res.json((await q('SELECT id, username, created_at FROM users ORDER BY username')).rows);
+}));
+app.post('/api/users', requireAdmin, wrap(async (req, res) => {
+  const username = String(req.body?.username || '').trim();
+  const password = String(req.body?.password || '');
+  if (!/^[\w.@-]{2,40}$/.test(username)) return bad(res, 'Benutzername: 2–40 Zeichen (Buchstaben, Ziffern, . _ - @)');
+  if (password.length < 6) return bad(res, 'Passwort: mindestens 6 Zeichen');
+  try {
+    const { rows } = await q('INSERT INTO users (username, password_hash) VALUES ($1,$2) RETURNING id, username', [username, hashPassword(password)]);
+    res.json(rows[0]);
+  } catch (e) { if (e.code === '23505') return bad(res, 'Benutzername existiert bereits', 409); throw e; }
+}));
+app.put('/api/users/:id/password', requireAdmin, wrap(async (req, res) => {
+  const password = String(req.body?.password || '');
+  if (password.length < 6) return bad(res, 'Passwort: mindestens 6 Zeichen');
+  await q('UPDATE users SET password_hash=$1 WHERE id=$2', [hashPassword(password), req.params.id]);
+  res.json({ ok: true });
+}));
+app.delete('/api/users/:id', requireAdmin, wrap(async (req, res) => {
+  const me = await currentUser(req);
+  if (me.id === Number(req.params.id)) return bad(res, 'Du kannst dich nicht selbst löschen', 409);
+  await q('DELETE FROM users WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+}));
 
 // ---------------------------------------------------------------- Teilnehmer-API (Zugang per Token)
 async function loadParticipant(req, res) {
   const { rows } = await q(
-    `SELECT p.*, s.title, s.description, s.status AS survey_status FROM participants p JOIN surveys s ON s.id = p.survey_id WHERE p.token = $1`,
+    `SELECT p.*, s.title, s.description, s.status AS survey_status, s.time_limit_min, s.show_results FROM participants p JOIN surveys s ON s.id = p.survey_id WHERE p.token = $1`,
     [req.params.token],
   );
   if (!rows[0]) { bad(res, 'Link ungültig', 404); return null; }
   return rows[0];
 }
 
+const deadlineOf = (p) => (p.time_limit_min && p.started_at ? new Date(new Date(p.started_at).getTime() + p.time_limit_min * 60000) : null);
+
+// Abgelaufene Zeit => automatisch abgeben (Antworten bleiben erhalten)
+async function expireIfNeeded(p) {
+  const d = deadlineOf(p);
+  if (p.status === 'started' && d && Date.now() > d.getTime() + 5000) {
+    await q(`UPDATE participants SET status='submitted', submitted_at=$2 WHERE id=$1`, [p.id, d]);
+    p.status = 'submitted';
+  }
+}
+
 app.get('/api/p/:token', wrap(async (req, res) => {
   const p = await loadParticipant(req, res); if (!p) return;
-  if (p.status === 'submitted') return res.json({ participant: { name: p.name, status: p.status }, survey: { title: p.title } });
+  await expireIfNeeded(p);
+  if (p.status === 'submitted') {
+    const out = { participant: { name: p.name, status: p.status }, survey: { title: p.title } };
+    if (p.show_results) {
+      const survey = (await q('SELECT * FROM surveys WHERE id=$1', [p.survey_id])).rows[0];
+      const ev = evaluate(await surveyQuestions(p.survey_id), await participantAnswers(p.id), survey);
+      out.results = { pct: ev.pct, level: ev.level, pending: ev.pendingCount, topics: ev.topics.map(({ name, pct, level }) => ({ name, pct, level })) };
+    }
+    return res.json(out);
+  }
   if (p.survey_status !== 'open') return res.json({ participant: { name: p.name, status: 'closed' }, survey: { title: p.title } });
-  if (p.status === 'invited') await q(`UPDATE participants SET status='started', started_at=now() WHERE id=$1`, [p.id]);
+  if (p.status === 'invited') {
+    p.started_at = (await q(`UPDATE participants SET status='started', started_at=now() WHERE id=$1 RETURNING started_at`, [p.id])).rows[0].started_at;
+  }
   const questions = (await surveyQuestions(p.survey_id)).map(sanitize);
   const answers = {};
   for (const a of await participantAnswers(p.id)) answers[a.question_id] = a.response;
   res.json({
     participant: { name: p.name, status: 'started' },
     survey: { title: p.title, description: p.description },
+    deadline: deadlineOf(p),
+    now: new Date(),
     questions,
     answers,
   });
@@ -63,7 +115,8 @@ app.get('/api/p/:token', wrap(async (req, res) => {
 
 app.put('/api/p/:token/answers/:qid', wrap(async (req, res) => {
   const p = await loadParticipant(req, res); if (!p) return;
-  if (p.status === 'submitted' || p.survey_status !== 'open') return bad(res, 'Abfrage ist abgeschlossen', 409);
+  await expireIfNeeded(p);
+  if (p.status === 'submitted' || p.survey_status !== 'open') return bad(res, 'Abfrage ist abgeschlossen (oder Zeit abgelaufen)', 409);
   const qid = Number(req.params.qid);
   const { rows } = await q(
     `SELECT qu.* FROM survey_questions sq JOIN questions qu ON qu.id=sq.question_id WHERE sq.survey_id=$1 AND qu.id=$2`,
@@ -204,9 +257,13 @@ app.put('/api/surveys/:id', requireAdmin, wrap(async (req, res) => {
     const cur = (await client.query('SELECT * FROM surveys WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
     if (!cur) { await client.query('ROLLBACK'); return bad(res, 'Nicht gefunden', 404); }
     const status = ['draft', 'open', 'closed'].includes(b.status) ? b.status : cur.status;
+    const low = Math.round(Number(b.threshold_low ?? cur.threshold_low)), high = Math.round(Number(b.threshold_high ?? cur.threshold_high));
+    if (!(low >= 0 && high <= 100 && low < high)) { await client.query('ROLLBACK'); return bad(res, 'Schwellenwerte: 0 ≤ unten < oben ≤ 100'); }
     await client.query(
-      `UPDATE surveys SET title=$1, description=$2, status=$3, threshold_low=$4, threshold_high=$5 WHERE id=$6`,
-      [b.title?.trim() || cur.title, b.description ?? cur.description, status, b.threshold_low ?? cur.threshold_low, b.threshold_high ?? cur.threshold_high, cur.id],
+      `UPDATE surveys SET title=$1, description=$2, status=$3, threshold_low=$4, threshold_high=$5, time_limit_min=$6, show_results=$7 WHERE id=$8`,
+      [b.title?.trim() || cur.title, b.description ?? cur.description, status, low, high,
+        'time_limit_min' in b ? (Number(b.time_limit_min) > 0 ? Math.round(Number(b.time_limit_min)) : null) : cur.time_limit_min,
+        'show_results' in b ? !!b.show_results : cur.show_results, cur.id],
     );
     if (Array.isArray(b.question_ids)) {
       if (cur.status !== 'draft') { await client.query('ROLLBACK'); return bad(res, 'Fragen können nur im Entwurf geändert werden', 409); }
@@ -334,6 +391,7 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   await initDb();
+  await ensureAdminUser();
   await seedIfEmpty();
   const port = Number(process.env.PORT) || 3000;
   app.listen(port, () => console.log(`Wissenscheck läuft auf Port ${port}`));

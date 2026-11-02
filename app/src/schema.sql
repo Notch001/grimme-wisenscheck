@@ -54,3 +54,13 @@ CREATE TABLE IF NOT EXISTS answers (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (participant_id, question_id)
 );
+
+ALTER TABLE surveys ADD COLUMN IF NOT EXISTS time_limit_min INT;                       -- NULL = kein Zeitlimit
+ALTER TABLE surveys ADD COLUMN IF NOT EXISTS show_results BOOLEAN NOT NULL DEFAULT false; -- Teilnehmer sehen nach Abgabe ihr Ergebnis
+
+CREATE TABLE IF NOT EXISTS users (
+  id            SERIAL PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);

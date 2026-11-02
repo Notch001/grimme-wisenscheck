@@ -108,3 +108,5 @@ textarea { resize: vertical; } input[type=checkbox], input[type=radio] { width: 
 @media print {
   body { background: #fff; } .noprint, #toast { display: none !important; } .card { box-shadow: none; break-inside: avoid; } .a-main { max-width: none; padding: 0; } .topicgroup > * { display: block !important; }
 }
+.timer { font-weight: 800; font-variant-numeric: tabular-nums; margin-left: auto; padding: .15rem .6rem; border-radius: 99px; background: var(--pend-bg); } .timer.low { background: var(--low-bg); color: var(--low); } .timer:empty { display: none; }
+.timer ~ .who { margin-left: 0; } .myresults { text-align: left; margin-top: 1.5rem; } .myresults .tbar { grid-template-columns: 1fr 52px 150px; }

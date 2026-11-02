@@ -11,7 +11,7 @@ cp .env.example .env     # Passwörter anpassen
 docker compose up --build
 ```
 
-- Admin: http://localhost:3000/ (Passwort aus `ADMIN_PASSWORD`, Standard `admin`)
+- Admin: http://localhost:3000/ – beim ersten Start wird der Benutzer `admin` mit dem Passwort aus `ADMIN_PASSWORD` angelegt (Standard `admin`); weitere Admins unter „Benutzer“
 - Teilnehmer: persönlicher Link `http://localhost:3000/t/<token>` (siehe Abfrage → Teilnehmer)
 - Beim ersten Start wird eine Demo-Abfrage mit 48 Aufgaben aus der PowerPoint-Vorlage,
   3 ausgewerteten Demo-Teilnehmern und dem offenen Link `/t/demo-test` angelegt (`SEED_DEMO=false` schaltet das ab).
@@ -28,6 +28,12 @@ Automatisch bewertbare Typen werden sofort gewertet; Zeichnen/Praxis bewertet de
 Gruppenmatrix (Teilnehmer × Themenbereich, Ampel: < 50 % Schulungsbedarf, < 75 % Auffrischung), Gruppen-Ø, CSV-Export,
 je Teilnehmer: Balken, Profil-Radar, Antworten vs. Lösung, Weiterbildungsvorschlag aus den Lernzielen nicht gelöster Aufgaben, Druckansicht.
 Teilnehmer sehen nie Lösungen oder Ergebnisse (Lösungen werden serverseitig aus der Teilnehmer-API entfernt).
+
+## Optionen je Abfrage
+
+- **Zeitlimit** (Minuten, leer = keins): läuft ab dem ersten Öffnen des Links, Countdown für den Teilnehmer, danach automatische Abgabe (serverseitig durchgesetzt).
+- **Schwellenwerte** für „Schulungsbedarf“ / „Auffrischung“ (Standard 50 / 75 %).
+- **Ergebnis für Teilnehmer**: optional wird nach der Abgabe die Prozentzahl je Themenbereich angezeigt (nie Lösungen).
 
 ## Entwicklung
 
