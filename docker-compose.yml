@@ -1,0 +1,36 @@
+# Wissenscheck – alles läuft lokal in Docker, keine externen Dienste.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wissenscheck
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-wissenscheck}
+      POSTGRES_DB: wissenscheck
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wissenscheck -d wissenscheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: ./app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://wissenscheck:${DB_PASSWORD:-wissenscheck}@db:5432/wissenscheck
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      SESSION_SECRET: ${SESSION_SECRET:-bitte-in-der-env-datei-aendern}
+      SEED_DEMO: ${SEED_DEMO:-true}
+    volumes:
+      - uploads:/data/uploads
+    ports:
+      - "${PORT:-3000}:3000"
+
+volumes:
+  dbdata:
+  uploads:
