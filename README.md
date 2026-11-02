@@ -50,6 +50,7 @@ Antwortoptionen je Teilnehmer gemischt (pro Frage abschaltbar), touchfreundliche
 
 Für `https://example.de/wissen` in der `.env` `BASE_PATH=/wissen` setzen und neu bauen (`docker compose up -d --build`).
 Der Proxy leitet `/wissen/` an den App-Container (Port 3000) weiter – mit oder ohne Entfernen des Prefix, beides funktioniert.
+Entfernt der Proxy den Prefix und sendet `X-Forwarded-Prefix` (Traefik/Coolify tun das), erkennt die App den Unterpfad auch ohne `BASE_PATH`.
 Beispiel nginx: `location /wissen/ { proxy_pass http://127.0.0.1:3000/wissen/; proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme; client_max_body_size 60m; }`
 
 ## Entwicklung

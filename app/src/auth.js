@@ -3,7 +3,6 @@ import { q } from './db.js';
 
 const SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const MAX_AGE = 12 * 3600; // Sekunden
-const COOKIE_PATH = (process.env.BASE_PATH || '').replace(/\/+$/, '') || '/';
 
 const sign = (v) => crypto.createHmac('sha256', SECRET).update(v).digest('hex');
 
@@ -36,13 +35,13 @@ export async function login(username, password) {
   return u && ok ? u : null;
 }
 
-export function issueCookie(res, uid) {
+export function issueCookie(res, uid, base = '') {
   const exp = Math.floor(Date.now() / 1000) + MAX_AGE;
   const payload = `${uid}.${exp}`;
-  res.setHeader('Set-Cookie', `adm=${payload}.${sign(payload)}; HttpOnly; SameSite=Strict; Path=${COOKIE_PATH}; Max-Age=${MAX_AGE}`);
+  res.setHeader('Set-Cookie', `adm=${payload}.${sign(payload)}; HttpOnly; SameSite=Strict; Path=${base || '/'}; Max-Age=${MAX_AGE}`);
 }
-export function clearCookie(res) {
-  res.setHeader('Set-Cookie', `adm=; HttpOnly; SameSite=Strict; Path=${COOKIE_PATH}; Max-Age=0`);
+export function clearCookie(res, base = '') {
+  res.setHeader('Set-Cookie', `adm=; HttpOnly; SameSite=Strict; Path=${base || '/'}; Max-Age=0`);
 }
 
 // Liefert den angemeldeten Benutzer (oder null); gelöschte Benutzer verlieren sofort den Zugang

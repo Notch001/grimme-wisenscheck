@@ -25,6 +25,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// Basispfad: aus BASE_PATH oder – falls der Proxy den Prefix entfernt – aus dem Header X-Forwarded-Prefix (Traefik/Coolify setzen ihn)
+const baseFor = (req) => {
+  if (BASE) return BASE;
+  const h = String(req.headers['x-forwarded-prefix'] || '').trim().replace(/\/+$/, '');
+  return /^\/[\w./-]*$/.test(h) && !h.includes('..') ? h : '';
+};
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
@@ -32,10 +38,10 @@ const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 app.post('/api/login', wrap(async (req, res) => {
   const u = await login(req.body?.username, req.body?.password);
   if (!u) return bad(res, 'Benutzername oder Passwort falsch', 401);
-  issueCookie(res, u.id);
+  issueCookie(res, u.id, baseFor(req));
   res.json({ ok: true });
 }));
-app.post('/api/logout', (req, res) => { clearCookie(res); res.json({ ok: true }); });
+app.post('/api/logout', (req, res) => { clearCookie(res, baseFor(req)); res.json({ ok: true }); });
 app.get('/api/me', wrap(async (req, res) => { const u = await currentUser(req); res.json({ admin: !!u, user: u }); }));
 
 // ---------------------------------------------------------------- Admin: Benutzer
@@ -525,8 +531,8 @@ app.put('/api/participants/:id/plan', requireAdmin, wrap(async (req, res) => {
 
 // ---------------------------------------------------------------- Frontend
 app.use('/api', (req, res) => bad(res, 'Unbekannter Endpunkt', 404));
-const INDEX = readFileSync(path.join(PUBLIC, 'index.html'), 'utf8').replaceAll('%BASE%', BASE);
-const sendIndex = (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.type('html').send(INDEX); };
+const INDEX = readFileSync(path.join(PUBLIC, 'index.html'), 'utf8');
+const sendIndex = (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.type('html').send(INDEX.replaceAll('%BASE%', baseFor(req))); };
 app.get(['/', '/index.html'], sendIndex);
 app.use(express.static(PUBLIC, { index: false, maxAge: 0 }));
 app.get('/t/:token', sendIndex);
