@@ -1,4 +1,7 @@
 // Minimale DOM-Helfer (kein Framework, kein Build-Schritt).
+// Basispfad, falls die App unter einem Unterpfad läuft (z. B. /wissen)
+export const BASE = window.__BASE__ || '';
+export const url = (p) => (p && p.startsWith('/') ? BASE + p : p);
 export function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -27,7 +30,7 @@ export async function api(path, opts = {}) {
     init.headers['content-type'] = 'application/json';
     init.body = JSON.stringify(opts.body);
   }
-  const res = await fetch('/api' + path, init);
+  const res = await fetch(BASE + '/api' + path, init);
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
   if (!res.ok) {
     const err = new Error(data?.error || `Fehler ${res.status}`);

@@ -46,6 +46,12 @@ Antwortoptionen je Teilnehmer gemischt (pro Frage abschaltbar), touchfreundliche
 - **Schwellenwerte** für „Schulungsbedarf“ / „Auffrischung“ (Standard 50 / 75 %).
 - **Ergebnis für Teilnehmer**: optional wird nach der Abgabe die Prozentzahl je Themenbereich angezeigt (nie Lösungen).
 
+## Betrieb hinter einem Reverse-Proxy / unter einem Unterpfad
+
+Für `https://example.de/wissen` in der `.env` `BASE_PATH=/wissen` setzen und neu bauen (`docker compose up -d --build`).
+Der Proxy leitet `/wissen/` an den App-Container (Port 3000) weiter – mit oder ohne Entfernen des Prefix, beides funktioniert.
+Beispiel nginx: `location /wissen/ { proxy_pass http://127.0.0.1:3000/wissen/; proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme; client_max_body_size 60m; }`
+
 ## Entwicklung
 
 `app/` (Express, `pg`, Vanilla-JS-Frontend ohne Build). Tests: `cd app && npm test`.

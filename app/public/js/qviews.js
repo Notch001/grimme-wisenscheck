@@ -1,12 +1,12 @@
 // Darstellung der Aufgaben für Teilnehmer. Jede View ruft onChange(response | null) bei Änderungen auf.
-import { h } from './dom.js';
+import { h, url } from './dom.js';
 import { drawEditor } from './draw.js';
 
 const lettered = (i) => String.fromCharCode(97 + i) + ')';
 
 function imageBlock(q, extra) {
   if (!q.image) return null;
-  const img = h('img', { src: q.image, alt: 'Aufgabenbild', draggable: 'false' });
+  const img = h('img', { src: url(q.image), alt: 'Aufgabenbild', draggable: 'false' });
   return h('div', { class: 'imgwrap' }, img, extra);
 }
 

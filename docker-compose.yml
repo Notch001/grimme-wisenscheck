@@ -26,6 +26,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       SESSION_SECRET: ${SESSION_SECRET:-bitte-in-der-env-datei-aendern}
       SEED_DEMO: ${SEED_DEMO:-true}
+      BASE_PATH: ${BASE_PATH:-}
     volumes:
       - uploads:/data/uploads
     ports:

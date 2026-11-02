@@ -1,5 +1,5 @@
 // Editor für Fragen im Fragenkatalog (alle Aufgabentypen).
-import { h, api, toast } from './dom.js';
+import { h, api, toast, url, BASE } from './dom.js';
 import { SYMBOLS } from './draw.js';
 
 const uid = () => Math.random().toString(36).slice(2, 7);
@@ -43,7 +43,7 @@ function imagePicker(state, kind, redrawConfig) {
   const c = state.config;
   if (!state.image) return h('p', { class: 'callout' }, 'Bitte zuerst oben ein Bild wählen oder hochladen.');
   const layer = h('div', { class: 'layer' });
-  const img = h('img', { src: state.image, alt: '' });
+  const img = h('img', { src: url(state.image), alt: '' });
   const wrap = h('div', { class: 'imgwrap clickable crosshair' }, img, layer);
   let activeLabel = null;
   const labelBar = h('div', { class: 'labelbank' });
@@ -159,7 +159,7 @@ export async function questionEditor({ question, meta, onSaved, onCancel }) {
   const redrawImg = () => {
     const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', onchange: async () => {
       const f = file.files[0]; if (!f) return;
-      const res = await fetch('/api/media', { method: 'POST', headers: { 'content-type': f.type }, body: f, credentials: 'same-origin' });
+      const res = await fetch(BASE + '/api/media', { method: 'POST', headers: { 'content-type': f.type }, body: f, credentials: 'same-origin' });
       const j = await res.json(); if (!res.ok) return toast(j.error, 'err');
       if (!media.includes(j.url)) media.push(j.url);
       state.image = j.url; redrawImg(); redrawCfg();
@@ -168,7 +168,7 @@ export async function questionEditor({ question, meta, onSaved, onCancel }) {
       h('div', { class: 'two' },
         field('Bild (optional)', h('select', { onchange: (e) => { state.image = e.target.value || null; redrawImg(); redrawCfg(); } }, h('option', { value: '' }, '– kein Bild –'), media.map((m) => h('option', { value: m, selected: state.image === m }, m.split('/').pop())))),
         field('Neues Bild hochladen', file)),
-      state.image ? h('img', { class: 'thumb', src: state.image, alt: '' }) : null);
+      state.image ? h('img', { class: 'thumb', src: url(state.image), alt: '' }) : null);
   };
   const typeSel = h('select', { onchange: (e) => { state.type = e.target.value; state.config = DEFAULTS[state.type](); redrawCfg(); } },
     Object.entries(meta.types).map(([k, t]) => h('option', { value: k, selected: state.type === k }, t.label)));

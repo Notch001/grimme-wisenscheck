@@ -15,6 +15,8 @@ const UPLOADS = process.env.UPLOAD_DIR || path.join(here, '..', 'data', 'uploads
 mkdirSync(UPLOADS, { recursive: true });
 
 export const app = express();
+// Betrieb unter Unterpfad (z. B. https://host/wissen): BASE_PATH=/wissen. Funktioniert mit und ohne Prefix-Entfernung im Reverse-Proxy.
+export const BASE = (process.env.BASE_PATH || '').replace(/\/+$/, '').replace(/^(?!\/)(?=.)/, '/');
 app.disable('x-powered-by');
 app.use(express.json({ limit: '5mb' }));
 app.use((req, res, next) => {
@@ -523,8 +525,11 @@ app.put('/api/participants/:id/plan', requireAdmin, wrap(async (req, res) => {
 
 // ---------------------------------------------------------------- Frontend
 app.use('/api', (req, res) => bad(res, 'Unbekannter Endpunkt', 404));
-app.use(express.static(PUBLIC, { index: 'index.html', maxAge: 0 }));
-app.get('/t/:token', (req, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
+const INDEX = readFileSync(path.join(PUBLIC, 'index.html'), 'utf8').replaceAll('%BASE%', BASE);
+const sendIndex = (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.type('html').send(INDEX); };
+app.get(['/', '/index.html'], sendIndex);
+app.use(express.static(PUBLIC, { index: false, maxAge: 0 }));
+app.get('/t/:token', sendIndex);
 
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   console.error(err);
@@ -536,5 +541,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   await ensureAdminUser();
   await seedIfEmpty();
   const port = Number(process.env.PORT) || 3000;
-  app.listen(port, () => console.log(`Wissenscheck läuft auf Port ${port}`));
+  const root = express();
+  if (BASE) root.use(BASE, app); // direkt unter dem Unterpfad …
+  root.use(app); // … und zusätzlich auf /, falls der Proxy den Prefix entfernt
+  root.listen(port, () => console.log(`Wissenscheck läuft auf Port ${port}${BASE ? ` (Unterpfad ${BASE})` : ''}`));
 }

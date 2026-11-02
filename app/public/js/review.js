@@ -1,5 +1,5 @@
 // Admin-Ansicht: Antwort des Teilnehmers im Vergleich zur Musterlösung + manuelle Bewertung.
-import { h, api, toast } from './dom.js';
+import { h, api, toast, url } from './dom.js';
 import { drawingView } from './draw.js';
 
 const ok = (b) => h('span', { class: b ? 'v-ok' : 'v-bad' }, b ? '✓' : '✗');
@@ -15,7 +15,7 @@ function optionsReview(q, picked, correctSet, label) {
 
 function imageOverlay(q, markers) {
   const layer = h('div', { class: 'layer' }, markers);
-  return h('div', { class: 'imgwrap' }, h('img', { src: q.image, alt: '' }), layer);
+  return h('div', { class: 'imgwrap' }, h('img', { src: url(q.image), alt: '' }), layer);
 }
 
 export function reviewView(item) {
@@ -62,7 +62,7 @@ export function reviewView(item) {
       return h('div', {}, h('p', { class: 'muted small' }, 'Grüne Kreise = gesuchte Bereiche, rote Punkte = Markierungen des Teilnehmers.'), imageOverlay(q, markers));
     }
     case 'drawing':
-      return r?.elements?.length ? h('div', {}, q.image ? h('img', { class: 'refimg', src: q.image, alt: '' }) : null, drawingView(r.elements)) : none;
+      return r?.elements?.length ? h('div', {}, q.image ? h('img', { class: 'refimg', src: url(q.image), alt: '' }) : null, drawingView(r.elements)) : none;
     case 'practical':
       return h('div', {}, c.criteria?.length ? h('ul', { class: 'plain' }, c.criteria.map((x) => h('li', {}, '▫ ', x))) : null, r?.note ? h('p', {}, h('b', {}, 'Notiz des Teilnehmers: '), r.note) : null);
     default: return none;

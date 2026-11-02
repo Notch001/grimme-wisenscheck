@@ -1,10 +1,10 @@
 // Admin-Oberfläche: Abfragen, Fragenkatalog, Auswertung.
-import { h, api, clear, toast, LEVEL, fmtDate } from './dom.js';
+import { h, api, clear, toast, LEVEL, fmtDate, BASE } from './dom.js';
 import { questionEditor } from './qeditor.js';
 import { reviewView, gradePanel } from './review.js';
 
 let root, meta, me;
-const link = (token) => `${location.origin}/t/${token}`;
+const link = (token) => `${location.origin}${BASE}/t/${token}`;
 const pctText = (p) => (p === null || p === undefined ? '–' : p + ' %');
 const STATUS = { draft: ['Entwurf', 'lv-pending'], open: ['Geöffnet', 'lv-ok'], closed: ['Geschlossen', 'lv-mid'] };
 const PSTATUS = { invited: ['Eingeladen', 'lv-pending'], started: ['In Bearbeitung', 'lv-mid'], submitted: ['Abgegeben', 'lv-ok'] };
@@ -134,7 +134,7 @@ async function surveyPage(id) {
           h('td', {}, h('b', {}, p.name), p.email ? h('div', { class: 'muted small' }, p.email) : null),
           h('td', {}, h('span', { class: 'badge ' + PSTATUS[p.status][1] }, PSTATUS[p.status][0]), p.submitted_at ? h('div', { class: 'muted small' }, fmtDate(p.submitted_at)) : null),
           h('td', {}, `${p.answered} / ${s.questions.length}`),
-          h('td', {}, h('code', { class: 'link' }, `/t/${p.token}`), ' ', h('button', { class: 'btn small', onclick: () => copy(link(p.token)) }, 'Kopieren'), ' ', h('a', { class: 'btn small', href: `/t/${p.token}`, target: '_blank', rel: 'noopener' }, 'Öffnen')),
+          h('td', {}, h('code', { class: 'link' }, `${BASE}/t/${p.token}`), ' ', h('button', { class: 'btn small', onclick: () => copy(link(p.token)) }, 'Kopieren'), ' ', h('a', { class: 'btn small', href: `${BASE}/t/${p.token}`, target: '_blank', rel: 'noopener' }, 'Öffnen')),
           h('td', { class: 'right' },
             p.status === 'submitted' ? h('a', { class: 'btn small', href: `#/participant/${p.id}` }, 'Ergebnis') : null, ' ',
             p.status === 'submitted' ? h('button', { class: 'btn small', onclick: async () => { if (confirm('Abgabe zurücknehmen, damit der Teilnehmer weiterarbeiten kann?')) { await api(`/participants/${p.id}/reopen`, { method: 'POST', body: {} }); surveyPage(id); } } }, 'Wieder öffnen') : null, ' ',
@@ -165,10 +165,10 @@ async function questionsPage() {
   }
   layout('questions',
     h('div', { class: 'pagehead' }, h('h1', {}, 'Fragenkatalog'),
-      h('a', { class: 'btn', href: '/api/questions-export', title: 'Alle Fragen inkl. Bilder als Datei sichern' }, '⬇ Exportieren'),
+      h('a', { class: 'btn', href: BASE + '/api/questions-export', title: 'Alle Fragen inkl. Bilder als Datei sichern' }, '⬇ Exportieren'),
       h('label', { class: 'btn', title: 'Fragen aus einer Exportdatei hinzufügen' }, '⬆ Importieren', h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: async (e) => {
         const f = e.target.files[0]; if (!f) return;
-        try { const r = await fetch('/api/questions-import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await f.text(), credentials: 'same-origin' }); const j = await r.json(); if (!r.ok) throw new Error(j.error); toast(`${j.imported} Fragen importiert`, 'ok'); meta = await api('/meta'); questionsPage(); } catch (err) { toast(err.message, 'err'); }
+        try { const r = await fetch(BASE + '/api/questions-import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await f.text(), credentials: 'same-origin' }); const j = await r.json(); if (!r.ok) throw new Error(j.error); toast(`${j.imported} Fragen importiert`, 'ok'); meta = await api('/meta'); questionsPage(); } catch (err) { toast(err.message, 'err'); }
       } })),
       h('button', { class: 'btn primary', onclick: () => edit(null) }, '+ Neue Frage')),
     h('div', { class: 'card row' },
@@ -190,7 +190,7 @@ async function resultsPage(id) {
     h('div', { class: 'card banner ' + (r.complete ? 'done' : '') },
       r.complete ? h('b', {}, '✓ Alle Teilnehmer haben die Abfrage abgegeben.') : h('b', {}, `${r.submitted} von ${r.participants.length} Teilnehmern haben abgegeben.`),
       h('span', { class: 'muted' }, ' Ergebnisse sind nur für Admins sichtbar. '),
-      h('a', { class: 'btn small', href: `/api/surveys/${id}/export.csv` }, 'CSV-Export')),
+      h('a', { class: 'btn small', href: `${BASE}/api/surveys/${id}/export.csv` }, 'CSV-Export')),
     h('div', { class: 'card row noprint' }, h('b', {}, 'Vorher/Nachher-Vergleich:'), h('span', { class: 'muted' }, 'diese Abfrage verglichen mit'), compareSelect(id)),
     h('div', { class: 'legend' }, ['low', 'mid', 'ok', 'pending'].map((k) => h('span', { class: 'badge ' + LEVEL[k].cls }, LEVEL[k].label + (k === 'low' ? ` (< ${r.survey.threshold_low} %)` : k === 'mid' ? ` (< ${r.survey.threshold_high} %)` : k === 'ok' ? ` (≥ ${r.survey.threshold_high} %)` : '')))),
     h('div', { class: 'card flush scroll' }, h('table', { class: 'tbl heat' },
