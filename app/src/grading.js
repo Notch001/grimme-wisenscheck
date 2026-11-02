@@ -134,28 +134,30 @@ export function shuffled(list, seed) {
   return a;
 }
 
-export function sanitize(q) {
+export function sanitize(q, participantId = 0) {
   const c = q.config || {};
+  const seed = q.id + participantId * 1009; // je Teilnehmer andere, aber stabile Reihenfolge
+  const opts = (list) => (c.keepOrder ? arr(list) : shuffled(arr(list), seed));
   let config = {};
   switch (q.type) {
     case 'single':
-      config = { options: arr(c.options) };
+      config = { options: opts(c.options) };
       break;
     case 'multi':
-      config = { options: arr(c.options), multiple: true };
+      config = { options: opts(c.options), multiple: true };
       break;
     case 'strike':
-      config = { options: arr(c.options) };
+      config = { options: arr(c.options) }; // Aussagen bleiben in Originalreihenfolge
       break;
     case 'order': {
-      let items = shuffled(arr(c.items), q.id);
+      let items = shuffled(arr(c.items), seed);
       const sorted = arr(c.items).map((i) => i.id).join();
       if (items.length > 1 && items.map((i) => i.id).join() === sorted) items = [...items.slice(1), items[0]];
       config = { items };
       break;
     }
     case 'match':
-      config = { left: arr(c.left), right: shuffled(arr(c.right), q.id) };
+      config = { left: arr(c.left), right: shuffled(arr(c.right), seed) };
       break;
     case 'number':
       config = { unit: c.unit || '' };
@@ -164,7 +166,7 @@ export function sanitize(q) {
       config = {};
       break;
     case 'imagelabel':
-      config = { labels: shuffled(arr(c.labels), q.id), aspect: c.aspect || 0.5 };
+      config = { labels: shuffled(arr(c.labels), seed), aspect: c.aspect || 0.5 };
       break;
     case 'hotspot':
       config = { aspect: c.aspect || 0.5, maxClicks: c.maxClicks || 12 };

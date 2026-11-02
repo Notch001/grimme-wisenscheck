@@ -31,7 +31,7 @@ function loginPage() {
 function layout(active, ...content) {
   clear(root).append(
     h('header', { class: 'a-head noprint' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'),
-      h('nav', {}, h('a', { href: '#/surveys', class: active === 'surveys' ? 'on' : '' }, 'Abfragen'), h('a', { href: '#/questions', class: active === 'questions' ? 'on' : '' }, 'Fragenkatalog'), h('a', { href: '#/users', class: active === 'users' ? 'on' : '' }, 'Benutzer')),
+      h('nav', {}, h('a', { href: '#/surveys', class: active === 'surveys' ? 'on' : '' }, 'Abfragen'), h('a', { href: '#/questions', class: active === 'questions' ? 'on' : '' }, 'Fragenkatalog'), h('a', { href: '#/people', class: active === 'people' ? 'on' : '' }, 'Verläufe'), h('a', { href: '#/users', class: active === 'users' ? 'on' : '' }, 'Benutzer')),
       h('span', { class: 'muted small' }, me?.username),
       h('button', { class: 'btn small', onclick: async () => { await api('/logout', { method: 'POST', body: {} }); adminApp(root); } }, 'Abmelden')),
     h('main', { class: 'a-main' }, ...content));
@@ -45,6 +45,9 @@ async function route() {
     if (page === 'participant') return await participantPage(id);
     if (page === 'questions') return await questionsPage();
     if (page === 'users') return await usersPage();
+    if (page === 'people') return await peoplePage();
+    if (page === 'person') return await personPage(decodeURIComponent(id));
+    if (page === 'compare') return await comparePage(id, location.hash.split('/')[3]);
     return await surveysPage();
   } catch (e) {
     if (e.status === 401) return adminApp(root);
@@ -91,6 +94,13 @@ async function surveyPage(id) {
   }));
 
   const names = h('textarea', { rows: 4, placeholder: 'Ein Teilnehmer pro Zeile:\nMax Mustermann, max@firma.de\nErika Beispiel' });
+  const csv = h('input', { type: 'file', accept: '.csv,.txt,text/csv,text/plain', onchange: async () => {
+    const f = csv.files[0]; if (!f) return;
+    const lines = (await f.text()).replace(/^\ufeff/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length && /^(name|vorname|teilnehmer)\b/i.test(lines[0])) lines.shift(); // Kopfzeile
+    names.value = [names.value.trim(), ...lines.map((l) => l.replace(/"/g, ''))].filter(Boolean).join('\n');
+    toast(`${lines.length} Zeilen aus CSV übernommen – bitte prüfen und „Hinzufügen“ klicken`, 'ok'); csv.value = '';
+  } });
   const copy = async (t) => { try { await navigator.clipboard.writeText(t); toast('Link kopiert', 'ok'); } catch { prompt('Link kopieren:', t); } };
 
   layout('surveys',
@@ -109,6 +119,7 @@ async function surveyPage(id) {
         h('button', { class: 'btn', onclick: () => patch(settings(), 'Gespeichert') }, 'Speichern'),
         s.status !== 'open' ? h('button', { class: 'btn primary', onclick: () => { if (!s.questions.length) return toast('Bitte zuerst Aufgaben auswählen und speichern', 'err'); patch({ ...settings(), status: 'open' }, 'Abfrage geöffnet – Links sind aktiv'); } }, 'Abfrage öffnen') : h('button', { class: 'btn', onclick: () => patch({ status: 'closed' }, 'Abfrage geschlossen') }, 'Abfrage schließen'),
         h('a', { class: 'btn', href: `#/results/${id}` }, 'Zur Auswertung →'),
+        h('button', { class: 'btn', title: 'Aufgaben und Optionen übernehmen, ohne Teilnehmer', onclick: async () => { const c = await api(`/surveys/${id}/duplicate`, { method: 'POST', body: {} }); toast('Kopie angelegt – jetzt Teilnehmer hinzufügen', 'ok'); location.hash = `#/survey/${c.id}`; } }, '⧉ Als Vorlage duplizieren'),
         h('button', { class: 'btn danger', onclick: async () => { if (confirm('Abfrage inkl. aller Antworten endgültig löschen?')) { await api(`/surveys/${id}`, { method: 'DELETE' }); location.hash = '#/surveys'; } } }, 'Löschen'))),
 
     h('div', { class: 'card' },
@@ -128,7 +139,7 @@ async function surveyPage(id) {
             p.status === 'submitted' ? h('a', { class: 'btn small', href: `#/participant/${p.id}` }, 'Ergebnis') : null, ' ',
             p.status === 'submitted' ? h('button', { class: 'btn small', onclick: async () => { if (confirm('Abgabe zurücknehmen, damit der Teilnehmer weiterarbeiten kann?')) { await api(`/participants/${p.id}/reopen`, { method: 'POST', body: {} }); surveyPage(id); } } }, 'Wieder öffnen') : null, ' ',
             h('button', { class: 'btn small danger', onclick: async () => { if (confirm(`${p.name} samt Antworten entfernen?`)) { await api(`/participants/${p.id}`, { method: 'DELETE' }); surveyPage(id); } } }, '✕'))))) ) : h('p', { class: 'muted' }, 'Noch keine Teilnehmer.'),
-      h('h3', {}, 'Teilnehmer hinzufügen'), names,
+      h('h3', {}, 'Teilnehmer hinzufügen'), names, h('label', { class: 'field' }, h('span', {}, 'oder CSV-Datei importieren (Spalten: Name; E-Mail)'), csv),
       h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: async () => {
         const list = names.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [name, email] = l.split(/[,;\t]/).map((x) => x.trim()); return { name, email }; });
         if (!list.length) return;
@@ -146,14 +157,20 @@ async function questionsPage() {
     const f = qs.filter((q) => (!topic || String(q.topic_id) === topic) && (!type || q.type === type) && (!text || q.prompt.toLowerCase().includes(text.toLowerCase())));
     body.replaceChildren(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Themenbereich', 'Typ', 'Aufgabe', 'In Abfragen', ''].map((t) => h('th', {}, t)))),
       h('tbody', {}, f.map((q) => h('tr', {}, h('td', {}, q.topic_name || '–'), h('td', {}, h('span', { class: 'tag t-' + q.type }, meta.types[q.type].label)), h('td', {}, q.prompt, q.image ? ' 🖼' : ''), h('td', {}, q.used_in),
-        h('td', { class: 'right' }, h('button', { class: 'btn small', onclick: () => edit(q) }, 'Bearbeiten'), ' ', h('button', { class: 'btn small danger', onclick: async () => { if (!confirm('Frage löschen?')) return; try { await api(`/questions/${q.id}`, { method: 'DELETE' }); questionsPage(); } catch (e) { toast(e.message, 'err'); } } }, '✕')))))));
+        h('td', { class: 'right' }, h('button', { class: 'btn small', onclick: () => edit(q) }, 'Bearbeiten'), ' ', h('button', { class: 'btn small', title: 'Duplizieren', onclick: async () => { await api(`/questions/${q.id}/duplicate`, { method: 'POST', body: {} }); toast('Frage dupliziert', 'ok'); questionsPage(); } }, '⧉'), ' ', h('button', { class: 'btn small danger', onclick: async () => { if (!confirm('Frage löschen?')) return; try { await api(`/questions/${q.id}`, { method: 'DELETE' }); questionsPage(); } catch (e) { toast(e.message, 'err'); } } }, '✕')))))));
   };
   async function edit(q) {
     meta = await api('/meta');
     layout('questions', await questionEditor({ question: q, meta, onSaved: () => questionsPage(), onCancel: () => questionsPage() }));
   }
   layout('questions',
-    h('div', { class: 'pagehead' }, h('h1', {}, 'Fragenkatalog'), h('button', { class: 'btn primary', onclick: () => edit(null) }, '+ Neue Frage')),
+    h('div', { class: 'pagehead' }, h('h1', {}, 'Fragenkatalog'),
+      h('a', { class: 'btn', href: '/api/questions-export', title: 'Alle Fragen inkl. Bilder als Datei sichern' }, '⬇ Exportieren'),
+      h('label', { class: 'btn', title: 'Fragen aus einer Exportdatei hinzufügen' }, '⬆ Importieren', h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: async (e) => {
+        const f = e.target.files[0]; if (!f) return;
+        try { const r = await fetch('/api/questions-import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await f.text(), credentials: 'same-origin' }); const j = await r.json(); if (!r.ok) throw new Error(j.error); toast(`${j.imported} Fragen importiert`, 'ok'); meta = await api('/meta'); questionsPage(); } catch (err) { toast(err.message, 'err'); }
+      } })),
+      h('button', { class: 'btn primary', onclick: () => edit(null) }, '+ Neue Frage')),
     h('div', { class: 'card row' },
       h('select', { onchange: (e) => { topic = e.target.value; draw(); } }, h('option', { value: '' }, 'Alle Themenbereiche'), meta.topics.map((t) => h('option', { value: t.id }, t.name))),
       h('select', { onchange: (e) => { type = e.target.value; draw(); } }, h('option', { value: '' }, 'Alle Typen'), Object.entries(meta.types).map(([k, t]) => h('option', { value: k }, t.label))),
@@ -164,7 +181,9 @@ async function questionsPage() {
 
 // ------------------------------------------------------------------ Auswertung (Gruppe)
 async function resultsPage(id) {
-  const r = await api(`/surveys/${id}/results`);
+  const [r, allSurveys] = await Promise.all([api(`/surveys/${id}/results`), api('/surveys')]);
+  const compareSelect = (cur) => h('select', { style: { width: 'auto', minWidth: '260px' }, onchange: (e) => { if (e.target.value) location.hash = `#/compare/${e.target.value}/${cur}`; } },
+    h('option', { value: '' }, '– frühere Abfrage wählen –'), allSurveys.filter((x) => String(x.id) !== String(cur)).map((x) => h('option', { value: x.id }, x.title)));
   const cell = (pct, level, extra) => h('td', { class: 'hm ' + LEVEL[level || 'pending'].cls, title: LEVEL[level || 'pending'].label }, pctText(pct), extra);
   layout('surveys',
     h('div', { class: 'pagehead' }, h('a', { href: `#/survey/${id}`, class: 'back' }, '← Abfrage'), h('h1', {}, 'Auswertung: ', r.survey.title)),
@@ -172,6 +191,7 @@ async function resultsPage(id) {
       r.complete ? h('b', {}, '✓ Alle Teilnehmer haben die Abfrage abgegeben.') : h('b', {}, `${r.submitted} von ${r.participants.length} Teilnehmern haben abgegeben.`),
       h('span', { class: 'muted' }, ' Ergebnisse sind nur für Admins sichtbar. '),
       h('a', { class: 'btn small', href: `/api/surveys/${id}/export.csv` }, 'CSV-Export')),
+    h('div', { class: 'card row noprint' }, h('b', {}, 'Vorher/Nachher-Vergleich:'), h('span', { class: 'muted' }, 'diese Abfrage verglichen mit'), compareSelect(id)),
     h('div', { class: 'legend' }, ['low', 'mid', 'ok', 'pending'].map((k) => h('span', { class: 'badge ' + LEVEL[k].cls }, LEVEL[k].label + (k === 'low' ? ` (< ${r.survey.threshold_low} %)` : k === 'mid' ? ` (< ${r.survey.threshold_high} %)` : k === 'ok' ? ` (≥ ${r.survey.threshold_high} %)` : '')))),
     h('div', { class: 'card flush scroll' }, h('table', { class: 'tbl heat' },
       h('thead', {}, h('tr', {}, h('th', {}, 'Teilnehmer'), h('th', {}, 'Gesamt'), r.topics.map((t) => h('th', { class: 'rot' }, h('span', {}, t.name))))),
@@ -200,7 +220,7 @@ function radar(topics) {
 }
 
 async function participantPage(id) {
-  const r = await api(`/participants/${id}/result`);
+  const [r, savedPlan] = await Promise.all([api(`/participants/${id}/result`), api(`/participants/${id}/plan`)]);
   const lvl = LEVEL[r.level];
   const bar = (t) => h('div', { class: 'tbar' },
     h('div', { class: 'tlabel' }, h('b', {}, t.name), h('span', { class: 'muted small' }, ` ${t.total} Aufgaben` + (t.pendingCount ? ` · ${t.pendingCount} offen` : ''))),
@@ -225,7 +245,7 @@ async function participantPage(id) {
     })));
 
   layout('surveys',
-    h('div', { class: 'pagehead noprint' }, h('a', { href: `#/results/${r.survey.id}`, class: 'back' }, '← Gruppenauswertung'),
+    h('div', { class: 'pagehead noprint' }, h('a', { href: `#/results/${r.survey.id}`, class: 'back' }, '← Gruppenauswertung'), h('a', { href: `#/person/${encodeURIComponent((r.participant.email || r.participant.name).toLowerCase())}`, class: 'btn' }, '📈 Verlauf dieser Person'),
       h('button', { class: 'btn', onclick: () => { document.querySelectorAll('details').forEach((d) => { d.open = true; }); window.print(); } }, '🖨 Drucken / PDF')),
     h('div', { class: 'card' },
       h('div', { class: 'row between' }, h('div', {}, h('h1', {}, r.participant.name), h('p', { class: 'muted' }, `${r.survey.title} · abgegeben ${fmtDate(r.participant.submitted_at)}`)),
@@ -234,11 +254,7 @@ async function participantPage(id) {
     h('div', { class: 'two-col' },
       h('div', { class: 'card' }, h('h2', {}, 'Stärken & Schwächen'), r.topics.map(bar), h('p', { class: 'muted small' }, `Markierungen: ${r.survey.threshold_low} % und ${r.survey.threshold_high} %`)),
       rv ? h('div', { class: 'card center' }, h('h2', {}, 'Profil'), rv) : null),
-    h('div', { class: 'card' },
-      h('h2', {}, 'Vorschlag für Schulung / Weiterbildungsplan'),
-      r.plan.length ? r.plan.map((p) => h('div', { class: 'plan' },
-        h('div', { class: 'row' }, h('span', { class: 'badge ' + LEVEL[p.level].cls }, LEVEL[p.level].label), h('b', {}, p.topic), h('span', { class: 'muted' }, pctText(p.pct))),
-        p.objectives.length ? h('ul', {}, p.objectives.map((o) => h('li', {}, o))) : h('p', { class: 'muted small' }, 'Keine einzelnen Lernziele hinterlegt.'))) : h('p', {}, r.pendingCount ? 'Noch keine Schwächen erkennbar – bitte zuerst offene Bewertungen abschließen.' : 'Keine Schwächen festgestellt. 🎉')),
+    planCard(r, id, savedPlan),
     h('div', { class: 'card' }, h('h2', {}, 'Einzelne Aufgaben'), taskCards));
 }
 
@@ -258,4 +274,102 @@ async function usersPage() {
           u.id !== me.id ? h('button', { class: 'btn small danger', onclick: async () => { if (confirm(`Benutzer ${u.username} löschen?`)) { await api(`/users/${u.id}`, { method: 'DELETE' }); usersPage(); } } }, '✕') : null)))))),
     h('form', { class: 'card row', onsubmit: async (e) => { e.preventDefault(); try { await api('/users', { method: 'POST', body: { username: name.value, password: pw.value } }); toast('Benutzer angelegt', 'ok'); usersPage(); } catch (err) { toast(err.message, 'err'); } } },
       name, pw, h('button', { class: 'btn primary', type: 'submit' }, '+ Benutzer anlegen')));
+}
+
+// ------------------------------------------------------------------ Weiterbildungsplan
+const PLAN_STATUS = { open: 'offen', planned: 'geplant', done: 'erledigt' };
+function planCard(r, pid, saved) {
+  const suggestion = r.plan.map((p) => ({ topic: p.topic, measure: p.objectives.length ? `Schulung/Training: ${p.objectives.join('; ')}` : 'Schulung/Training', responsible: '', due: '', status: 'open' }));
+  let items = saved ? saved.items.map((i) => ({ ...i })) : suggestion;
+  let notes = saved?.notes || '';
+  const list = h('div', { class: 'planlist' });
+  const topicNames = r.topics.map((t) => t.name);
+  const draw = () => list.replaceChildren(...(items.length ? [] : [h('p', { class: 'muted' }, 'Noch keine Maßnahmen.')]), ...items.map((it, i) => h('div', { class: 'planrow' },
+    h('select', { 'aria-label': 'Themenbereich', onchange: (e) => { it.topic = e.target.value; } }, h('option', { value: '' }, '– Thema –'), topicNames.map((t) => h('option', { value: t, selected: it.topic === t }, t))),
+    h('textarea', { rows: 2, placeholder: 'Maßnahme (Schulung, Training, Mentor …)', oninput: (e) => { it.measure = e.target.value; } }, it.measure),
+    h('input', { type: 'text', placeholder: 'Verantwortlich', value: it.responsible, oninput: (e) => { it.responsible = e.target.value; } }),
+    h('input', { type: 'date', value: it.due, onchange: (e) => { it.due = e.target.value; } }),
+    h('select', { 'aria-label': 'Status', onchange: (e) => { it.status = e.target.value; } }, Object.entries(PLAN_STATUS).map(([k, v]) => h('option', { value: k, selected: it.status === k }, v))),
+    h('button', { type: 'button', class: 'btn icon danger noprint', title: 'entfernen', onclick: () => { items.splice(i, 1); draw(); } }, '✕'))));
+  draw();
+  const notesEl = h('textarea', { rows: 3, placeholder: 'Anmerkungen zum Weiterbildungsplan', oninput: (e) => { notes = e.target.value; } }, notes);
+  const printView = h('div', { class: 'print-only plan-print' });
+  const doPrint = () => {
+    printView.replaceChildren(h('h2', {}, `Weiterbildungsplan: ${r.participant.name}`), h('p', {}, `${r.survey.title} · Gesamtergebnis ${pctText(r.pct)} · Stand ${new Date().toLocaleDateString('de-DE')}`),
+      h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Themenbereich', 'Maßnahme', 'Verantwortlich', 'Termin', 'Status'].map((t) => h('th', {}, t)))),
+        h('tbody', {}, items.map((it) => h('tr', {}, h('td', {}, it.topic), h('td', {}, it.measure), h('td', {}, it.responsible), h('td', {}, it.due ? new Date(it.due).toLocaleDateString('de-DE') : ''), h('td', {}, PLAN_STATUS[it.status]))))),
+      notes ? h('p', {}, h('b', {}, 'Anmerkungen: '), notes) : null);
+    document.body.classList.add('print-plan');
+    window.onafterprint = () => { document.body.classList.remove('print-plan'); window.onafterprint = null; };
+    window.print();
+  };
+  return h('div', { class: 'card', id: 'plancard' },
+    h('div', { class: 'row between' }, h('h2', {}, 'Weiterbildungsplan'), saved ? h('span', { class: 'muted small' }, `gespeichert ${fmtDate(saved.updated_at)} von ${saved.updated_by}`) : h('span', { class: 'badge lv-mid' }, 'Vorschlag – noch nicht gespeichert')),
+    r.plan.length || saved ? null : h('p', { class: 'muted' }, r.pendingCount ? 'Noch keine Schwächen erkennbar – bitte zuerst offene Bewertungen abschließen. Maßnahmen können trotzdem manuell ergänzt werden.' : 'Keine Schwächen festgestellt. Maßnahmen können trotzdem manuell ergänzt werden.'),
+    h('p', { class: 'hint noprint' }, 'Der Vorschlag entsteht aus den Lernzielen der nicht voll gelösten Aufgaben. Alles ist frei bearbeitbar.'),
+    list,
+    h('div', { class: 'row noprint' }, h('button', { type: 'button', class: 'btn small', onclick: () => { items.push({ topic: '', measure: '', responsible: '', due: '', status: 'open' }); draw(); } }, '+ Maßnahme'),
+      saved ? h('button', { type: 'button', class: 'btn small', onclick: () => { items = [...items, ...suggestion.filter((s) => !items.some((i) => i.topic === s.topic && i.measure === s.measure))]; draw(); } }, 'Vorschlag ergänzen') : null),
+    h('label', { class: 'field noprint', style: { marginTop: '.8rem' } }, h('span', {}, 'Anmerkungen'), notesEl),
+    h('div', { class: 'row end noprint' },
+      h('button', { type: 'button', class: 'btn', onclick: doPrint }, '🖨 Plan drucken / PDF'),
+      h('button', { type: 'button', class: 'btn primary', onclick: async () => { try { await api(`/participants/${pid}/plan`, { method: 'PUT', body: { items, notes } }); toast('Plan gespeichert', 'ok'); participantPage(pid); } catch (e) { toast(e.message, 'err'); } } }, 'Plan speichern')),
+    printView);
+}
+
+// ------------------------------------------------------------------ Verläufe & Vergleich
+const deltaCell = (a, b) => {
+  if (a === null || a === undefined || b === null || b === undefined) return h('td', { class: 'hm lv-pending' }, '–');
+  const d = b - a;
+  return h('td', { class: 'hm ' + (d >= 5 ? 'lv-ok' : d <= -5 ? 'lv-low' : 'lv-pending'), title: `${a} % → ${b} %` }, `${a} → ${b}`, h('div', { class: 'small' }, (d > 0 ? '+' : '') + d));
+};
+
+async function peoplePage() {
+  const people = await api('/people');
+  layout('people',
+    h('div', { class: 'pagehead' }, h('h1', {}, 'Verläufe')),
+    h('p', { class: 'muted' }, 'Teilnehmer werden über die E-Mail-Adresse (ohne E-Mail über den Namen) abfrageübergreifend zusammengeführt. Für saubere Verläufe bei jeder Abfrage dieselbe E-Mail verwenden.'),
+    h('div', { class: 'card flush' }, people.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Name', 'E-Mail', 'Abgegebene Abfragen', 'Zuletzt', ''].map((t) => h('th', {}, t)))),
+      h('tbody', {}, people.map((p) => h('tr', { class: 'clickrow', onclick: () => { location.hash = `#/person/${encodeURIComponent(p.key)}`; } }, h('td', {}, h('b', {}, p.name)), h('td', {}, p.email || '–'), h('td', {}, p.count), h('td', {}, fmtDate(p.last)), h('td', { class: 'right' }, p.count > 1 ? h('span', { class: 'badge lv-ok' }, 'Verlauf') : ''))))) : h('p', { class: 'muted', style: { padding: '1rem' } }, 'Noch keine abgegebenen Abfragen.')));
+}
+
+function lineChart(points) {
+  const W = 520, H = 160, pad = 30;
+  const x = (i) => (points.length === 1 ? W / 2 : pad + (i * (W - 2 * pad)) / (points.length - 1)), y = (v) => H - pad - (v / 100) * (H - 2 * pad);
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  el.setAttribute('viewBox', `0 0 ${W} ${H}`); el.setAttribute('class', 'linechart');
+  el.innerHTML = [0, 50, 100].map((v) => `<line x1="${pad}" x2="${W - pad}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity=".15"/><text x="${pad - 6}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="currentColor" opacity=".6">${v}</text>`).join('')
+    + `<polyline fill="none" stroke="var(--accent)" stroke-width="2.5" points="${points.map((p, i) => `${x(i)},${y(p.v)}`).join(' ')}"/>`
+    + points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.v)}" r="4.5" fill="var(--accent)"/><text x="${x(i)}" y="${y(p.v) - 10}" font-size="12" text-anchor="middle" font-weight="700" fill="currentColor">${p.v} %</text><text x="${x(i)}" y="${H - 8}" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".7">${p.label}</text>`).join('');
+  return el;
+}
+
+async function personPage(key) {
+  const d = await api(`/people/history?key=${encodeURIComponent(key)}`);
+  const hist = d.history;
+  const topics = [...new Set(hist.flatMap((x) => x.topics.map((t) => t.name)))];
+  const pctIn = (x, n) => x.topics.find((t) => t.name === n)?.pct ?? null;
+  const first = hist[0], last = hist.at(-1);
+  layout('people',
+    h('div', { class: 'pagehead' }, h('a', { href: '#/people', class: 'back' }, '← Verläufe'), h('h1', {}, d.name)),
+    hist.length < 2 ? h('p', { class: 'callout' }, 'Bisher nur eine abgegebene Abfrage – ein Verlauf entsteht ab der zweiten (z. B. nach der Schulung).') : null,
+    hist.length ? h('div', { class: 'card' }, h('h2', {}, 'Gesamtergebnis im Zeitverlauf'), lineChart(hist.map((x) => ({ v: x.pct ?? 0, label: new Date(x.submitted_at).toLocaleDateString('de-DE') })))) : null,
+    h('div', { class: 'card flush scroll' }, h('table', { class: 'tbl heat' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Themenbereich'), hist.map((x) => h('th', {}, h('a', { href: `#/participant/${x.participant_id}` }, x.survey), h('div', { class: 'small', style: { textTransform: 'none', fontWeight: 400 } }, fmtDate(x.submitted_at)))), hist.length > 1 ? h('th', {}, 'Veränderung') : null)),
+      h('tbody', {}, [{ name: 'Gesamt', get: (x) => x.pct }, ...topics.map((n) => ({ name: n, get: (x) => pctIn(x, n) }))].map((row) => h('tr', {}, h('td', {}, h('b', {}, row.name)),
+        hist.map((x) => { const v = row.get(x); return h('td', { class: 'hm' }, pctText(v)); }),
+        hist.length > 1 ? deltaCell(row.get(first), row.get(last)) : null))))));
+}
+
+async function comparePage(a, b) {
+  const c = await api(`/compare?a=${a}&b=${b}`);
+  layout('surveys',
+    h('div', { class: 'pagehead' }, h('a', { href: `#/results/${b}`, class: 'back' }, '← Auswertung'), h('h1', {}, 'Vorher/Nachher-Vergleich')),
+    h('div', { class: 'card' }, h('div', { class: 'two' }, h('div', {}, h('span', { class: 'tag' }, 'Vorher'), h('p', {}, h('b', {}, c.a.title))), h('div', {}, h('span', { class: 'tag' }, 'Nachher'), h('p', {}, h('b', {}, c.b.title)))),
+      h('p', { class: 'muted small' }, `${c.people.length} Teilnehmer in beiden Abfragen gefunden (Zuordnung über E-Mail bzw. Name).` + (c.unmatched.a || c.unmatched.b ? ` Nicht zuordenbar: ${c.unmatched.a} (vorher), ${c.unmatched.b} (nachher).` : ''))),
+    c.people.length ? h('div', { class: 'card flush scroll' }, h('table', { class: 'tbl heat' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Teilnehmer'), h('th', {}, 'Gesamt'), c.topics.map((t) => h('th', { class: 'rot' }, h('span', {}, t))))),
+      h('tbody', {}, c.people.map((p) => h('tr', {}, h('td', {}, h('b', {}, p.name)), deltaCell(p.a, p.b), p.topics.map((t) => deltaCell(t.a, t.b)))),
+        h('tr', { class: 'avg' }, h('td', {}, h('b', {}, 'Gruppen-Ø')), deltaCell(c.average.a, c.average.b), c.average.topics.map((t) => deltaCell(t.a, t.b)))))) : h('p', { class: 'muted' }, 'Keine Teilnehmer in beiden Abfragen gefunden.'),
+    h('p', { class: 'muted small' }, 'Grün: Verbesserung ab +5 Prozentpunkten, rot: Verschlechterung ab −5.'));
 }

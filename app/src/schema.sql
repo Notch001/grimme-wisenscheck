@@ -64,3 +64,12 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Bearbeitbarer Weiterbildungsplan je Teilnehmer-Ergebnis
+CREATE TABLE IF NOT EXISTS plans (
+  participant_id INT PRIMARY KEY REFERENCES participants(id) ON DELETE CASCADE,
+  items          JSONB NOT NULL DEFAULT '[]',
+  notes          TEXT NOT NULL DEFAULT '',
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by     TEXT NOT NULL DEFAULT ''
+);

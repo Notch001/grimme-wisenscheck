@@ -1,5 +1,5 @@
 import express from 'express';
-import { mkdirSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -100,7 +100,7 @@ app.get('/api/p/:token', wrap(async (req, res) => {
   if (p.status === 'invited') {
     p.started_at = (await q(`UPDATE participants SET status='started', started_at=now() WHERE id=$1 RETURNING started_at`, [p.id])).rows[0].started_at;
   }
-  const questions = (await surveyQuestions(p.survey_id)).map(sanitize);
+  const questions = (await surveyQuestions(p.survey_id)).map((x) => sanitize(x, p.id));
   const answers = {};
   for (const a of await participantAnswers(p.id)) answers[a.question_id] = a.response;
   res.json({
@@ -377,6 +377,148 @@ app.get('/api/surveys/:id/export.csv', requireAdmin, wrap(async (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="auswertung-${survey.id}.csv"`);
   res.send('﻿' + lines.join('\r\n'));
+}));
+
+// ---------------------------------------------------------------- Komfort: Duplizieren
+app.post('/api/surveys/:id/duplicate', requireAdmin, wrap(async (req, res) => {
+  const { rows } = await q(
+    `INSERT INTO surveys (title, description, threshold_low, threshold_high, time_limit_min, show_results)
+     SELECT title || ' (Kopie)', description, threshold_low, threshold_high, time_limit_min, show_results FROM surveys WHERE id=$1 RETURNING id`, [req.params.id]);
+  if (!rows[0]) return bad(res, 'Nicht gefunden', 404);
+  await q('INSERT INTO survey_questions SELECT $1, question_id, position FROM survey_questions WHERE survey_id=$2', [rows[0].id, req.params.id]);
+  res.json({ id: rows[0].id });
+}));
+
+app.post('/api/questions/:id/duplicate', requireAdmin, wrap(async (req, res) => {
+  const { rows } = await q(
+    `INSERT INTO questions (topic_id,type,prompt,objective,points,image,config)
+     SELECT topic_id,type,prompt || ' (Kopie)',objective,points,image,config FROM questions WHERE id=$1 RETURNING *`, [req.params.id]);
+  if (!rows[0]) return bad(res, 'Nicht gefunden', 404);
+  res.json(rows[0]);
+}));
+
+// ---------------------------------------------------------------- Komfort: Fragen exportieren / importieren (inkl. Bilder)
+const MIME = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+function imageToData(url) {
+  const m = /^\/(media|uploads)\/([\w.-]+)$/.exec(url || '');
+  if (!m) return null;
+  try {
+    const file = path.join(m[1] === 'media' ? path.join(PUBLIC, 'media') : UPLOADS, m[2]);
+    const ext = m[2].split('.').pop().toLowerCase();
+    return MIME[ext] ? `data:${MIME[ext]};base64,${readFileSync(file).toString('base64')}` : null;
+  } catch { return null; }
+}
+app.get('/api/questions-export', requireAdmin, wrap(async (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map(Number).filter(Boolean);
+  const { rows } = await q(
+    `SELECT qu.*, t.name AS topic_name FROM questions qu LEFT JOIN topics t ON t.id=qu.topic_id
+      WHERE ($1::int[] IS NULL OR qu.id = ANY($1)) ORDER BY qu.id`, [ids.length ? ids : null]);
+  const questions = rows.map((r) => ({ topic: r.topic_name, type: r.type, prompt: r.prompt, objective: r.objective, points: r.points,
+    image: r.image, imageData: imageToData(r.image), config: r.config }));
+  res.setHeader('Content-Disposition', 'attachment; filename="fragen-export.json"');
+  res.json({ format: 'wissenscheck-fragen', version: 1, questions });
+}));
+app.post('/api/questions-import', requireAdmin, express.json({ limit: '60mb' }), wrap(async (req, res) => {
+  const b = req.body;
+  if (b?.format !== 'wissenscheck-fragen' || !Array.isArray(b.questions)) return bad(res, 'Keine gültige Fragen-Exportdatei');
+  let n = 0;
+  for (const d of b.questions) {
+    const err = validateQuestion(d.type, d.config) || (!d.prompt ? 'Fragetext fehlt' : null);
+    if (err) return bad(res, `Frage „${String(d.prompt).slice(0, 40)}“: ${err}`);
+  }
+  for (const d of b.questions) {
+    let topicId = null;
+    if (d.topic) {
+      topicId = (await q(`INSERT INTO topics (name, sort) VALUES ($1, COALESCE((SELECT MAX(sort)+1 FROM topics),1)) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id`, [String(d.topic)])).rows[0].id;
+    }
+    let image = d.image || null;
+    const m = /^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/.exec(d.imageData || '');
+    if (m) {
+      const ext = IMG[m[1]];
+      const name = `${crypto.randomBytes(8).toString('hex')}.${ext}`;
+      writeFileSync(path.join(UPLOADS, name), Buffer.from(m[2], 'base64'));
+      image = `/uploads/${name}`;
+    } else if (image && !/^\/(media|uploads)\//.test(image)) image = null;
+    await q('INSERT INTO questions (topic_id,type,prompt,objective,points,image,config) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [topicId, d.type, String(d.prompt), String(d.objective || ''), Number(d.points) > 0 ? Number(d.points) : 1, image, d.config || {}]);
+    n++;
+  }
+  res.json({ imported: n });
+}));
+
+// ---------------------------------------------------------------- Auswertung über mehrere Abfragen (Verlauf, Vorher/Nachher)
+const personKey = (p) => (p.email || '').trim().toLowerCase() || (p.name || '').trim().toLowerCase();
+
+// Abgegebene Teilnahmen einer Abfrage inkl. Auswertung
+async function evaluatedParticipations(survey) {
+  const questions = await surveyQuestions(survey.id);
+  const { rows: ps } = await q(`SELECT * FROM participants WHERE survey_id=$1 AND status='submitted' ORDER BY name`, [survey.id]);
+  const { rows: all } = await q('SELECT a.* FROM answers a JOIN participants p ON p.id=a.participant_id WHERE p.survey_id=$1', [survey.id]);
+  return ps.map((p) => ({ p, key: personKey(p), ev: evaluate(questions, all.filter((a) => a.participant_id === p.id), survey) }));
+}
+const slim = (ev) => ({ pct: ev.pct, pending: ev.pendingCount, topics: ev.topics.map((t) => ({ name: t.name, pct: t.pct })) });
+
+app.get('/api/people', requireAdmin, wrap(async (req, res) => {
+  const { rows } = await q(`SELECT id, name, email, submitted_at, survey_id FROM participants WHERE status='submitted' ORDER BY submitted_at`);
+  const map = new Map();
+  for (const r of rows) {
+    const k = personKey(r);
+    const e = map.get(k) || { key: k, name: r.name, email: r.email, count: 0, last: null };
+    e.count++; e.name = r.name; e.last = r.submitted_at; map.set(k, e);
+  }
+  res.json([...map.values()].sort((a, b) => a.name.localeCompare(b.name)));
+}));
+
+app.get('/api/people/history', requireAdmin, wrap(async (req, res) => {
+  const key = String(req.query.key || '').toLowerCase();
+  const { rows: surveys } = await q(`SELECT DISTINCT s.* FROM surveys s JOIN participants p ON p.survey_id=s.id WHERE p.status='submitted'`);
+  const out = [];
+  for (const s of surveys) {
+    for (const x of await evaluatedParticipations(s)) {
+      if (x.key === key) out.push({ participant_id: x.p.id, name: x.p.name, survey_id: s.id, survey: s.title, submitted_at: x.p.submitted_at, ...slim(x.ev) });
+    }
+  }
+  out.sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
+  res.json({ key, name: out.at(-1)?.name || key, history: out });
+}));
+
+app.get('/api/compare', requireAdmin, wrap(async (req, res) => {
+  const [sa, sb] = await Promise.all([req.query.a, req.query.b].map(async (id) => (await q('SELECT * FROM surveys WHERE id=$1', [id])).rows[0]));
+  if (!sa || !sb) return bad(res, 'Abfrage nicht gefunden', 404);
+  const [A, B] = await Promise.all([evaluatedParticipations(sa), evaluatedParticipations(sb)]);
+  const topics = [...new Set([...A, ...B].flatMap((x) => x.ev.topics.map((t) => t.name)))];
+  const people = [];
+  for (const a of A) {
+    const b = B.find((y) => y.key === a.key);
+    if (!b) continue;
+    const pct = (ev, n) => ev.topics.find((t) => t.name === n)?.pct ?? null;
+    people.push({ name: b.p.name, participant_a: a.p.id, participant_b: b.p.id, a: a.ev.pct, b: b.ev.pct,
+      topics: topics.map((n) => ({ name: n, a: pct(a.ev, n), b: pct(b.ev, n) })) });
+  }
+  const avg = (vals) => { const v = vals.filter((x) => x !== null && x !== undefined); return v.length ? Math.round(v.reduce((s, x) => s + x, 0) / v.length) : null; };
+  res.json({
+    a: { id: sa.id, title: sa.title }, b: { id: sb.id, title: sb.title }, topics, people,
+    average: { a: avg(people.map((p) => p.a)), b: avg(people.map((p) => p.b)),
+      topics: topics.map((n, i) => ({ name: n, a: avg(people.map((p) => p.topics[i].a)), b: avg(people.map((p) => p.topics[i].b)) })) },
+    unmatched: { a: A.length - people.length, b: B.length - people.length },
+  });
+}));
+
+// ---------------------------------------------------------------- Weiterbildungsplan
+app.get('/api/participants/:id/plan', requireAdmin, wrap(async (req, res) => {
+  const { rows } = await q('SELECT items, notes, updated_at, updated_by FROM plans WHERE participant_id=$1', [req.params.id]);
+  res.json(rows[0] || null);
+}));
+app.put('/api/participants/:id/plan', requireAdmin, wrap(async (req, res) => {
+  const me = await currentUser(req);
+  const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 100).map((i) => ({
+    topic: String(i.topic || '').slice(0, 200), measure: String(i.measure || '').slice(0, 1000), responsible: String(i.responsible || '').slice(0, 200),
+    due: /^\d{4}-\d{2}-\d{2}$/.test(i.due || '') ? i.due : '', status: ['open', 'planned', 'done'].includes(i.status) ? i.status : 'open',
+  }));
+  await q(`INSERT INTO plans (participant_id, items, notes, updated_by) VALUES ($1,$2,$3,$4)
+           ON CONFLICT (participant_id) DO UPDATE SET items=EXCLUDED.items, notes=EXCLUDED.notes, updated_at=now(), updated_by=EXCLUDED.updated_by`,
+    [req.params.id, JSON.stringify(items), String(req.body?.notes || '').slice(0, 5000), me.username]);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------- Frontend

@@ -110,3 +110,14 @@ textarea { resize: vertical; } input[type=checkbox], input[type=radio] { width: 
 }
 .timer { font-weight: 800; font-variant-numeric: tabular-nums; margin-left: auto; padding: .15rem .6rem; border-radius: 99px; background: var(--pend-bg); } .timer.low { background: var(--low-bg); color: var(--low); } .timer:empty { display: none; }
 .timer ~ .who { margin-left: 0; } .myresults { text-align: left; margin-top: 1.5rem; } .myresults .tbar { grid-template-columns: 1fr 52px 150px; }
+.planrow { display: grid; grid-template-columns: 190px 1fr 150px 140px 110px 40px; gap: .5rem; align-items: start; margin-bottom: .6rem; padding-bottom: .6rem; border-bottom: 1px dashed var(--line); }
+@media (max-width: 900px) { .planrow { grid-template-columns: 1fr 1fr; } .planrow textarea { grid-column: 1 / -1; } }
+.linechart { width: 100%; max-width: 560px; color: var(--ink); }
+.print-only { display: none; }
+@media print { body.print-plan .a-main > :not(#plancard), body.print-plan .a-head { display: none !important; } body.print-plan #plancard { border: 0; } body.print-plan #plancard > :not(.print-only) { display: none !important; } body.print-plan .print-only { display: block; } }
+/* Touch / Tablet: größere Bedienelemente */
+@media (pointer: coarse) {
+  .btn { min-height: 46px; } .btn.small { min-height: 42px; padding: .35rem .8rem; } .btn.icon { width: 44px; min-height: 44px; }
+  .choice, .chip { min-height: 54px; } .orderitem { padding: .8rem; } select, input[type=text], input[type=number] { min-height: 48px; }
+  .dot { width: 30px; height: 30px; } .draw-toolbar { gap: .5rem; }
+}

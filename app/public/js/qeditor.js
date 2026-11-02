@@ -76,18 +76,20 @@ function imagePicker(state, kind, redrawConfig) {
   return h('div', {}, kind === 'imagelabel' ? h('p', { class: 'hint' }, 'Bezeichnung wählen, dann im Bild die richtige Stelle anklicken.') : h('p', { class: 'hint' }, 'Alle zu markierenden Stellen im Bild anklicken. Klick auf einen Kreis entfernt ihn.'), labelBar, wrap);
 }
 
+const keepOrderBox = (c) => h('label', { class: 'symopt', title: 'z. B. bei „Alle genannten“ oder „a), b), c)“-Bezügen' }, h('input', { type: 'checkbox', checked: !!c.keepOrder, onchange: (e) => { c.keepOrder = e.target.checked; } }), ' Antwortreihenfolge fest (nicht mischen)');
+
 const configEditors = {
   single(state) {
     const c = state.config;
     const { node } = listEditor(c.options, { min: 2, addLabel: 'Antwort', onChange: (re) => { if (re && !c.options.some((o) => o.id === c.correct)) c.correct = c.options[0].id; },
       extra: (o) => h('input', { type: 'radio', name: 'correct', checked: c.correct === o.id, title: 'richtige Antwort', onchange: () => { c.correct = o.id; } }) });
-    return h('div', {}, h('p', { class: 'hint' }, 'Richtige Antwort per Auswahlpunkt markieren.'), node);
+    return h('div', {}, h('p', { class: 'hint' }, 'Richtige Antwort per Auswahlpunkt markieren.'), node, keepOrderBox(c));
   },
   multi(state) {
     const c = state.config;
     const { node } = listEditor(c.options, { min: 2, addLabel: 'Antwort', onChange: () => { c.correct = c.correct.filter((id) => c.options.some((o) => o.id === id)); },
       extra: (o) => h('input', { type: 'checkbox', checked: c.correct.includes(o.id), title: 'richtig', onchange: (e) => { c.correct = e.target.checked ? [...c.correct, o.id] : c.correct.filter((x) => x !== o.id); } }) });
-    return h('div', {}, h('p', { class: 'hint' }, 'Alle richtigen Antworten anhaken.'), node);
+    return h('div', {}, h('p', { class: 'hint' }, 'Alle richtigen Antworten anhaken.'), node, keepOrderBox(c));
   },
   strike(state) {
     const c = state.config;

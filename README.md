@@ -29,6 +29,17 @@ Gruppenmatrix (Teilnehmer × Themenbereich, Ampel: < 50 % Schulungsbedarf, < 75 
 je Teilnehmer: Balken, Profil-Radar, Antworten vs. Lösung, Weiterbildungsvorschlag aus den Lernzielen nicht gelöster Aufgaben, Druckansicht.
 Teilnehmer sehen nie Lösungen oder Ergebnisse (Lösungen werden serverseitig aus der Teilnehmer-API entfernt).
 
+## Auswertung über mehrere Abfragen
+
+- **Vorher/Nachher-Vergleich:** in der Auswertung eine frühere Abfrage wählen, Teilnehmer werden über E-Mail (sonst Name) zugeordnet.
+- **Verläufe:** Menü „Verläufe“, Entwicklung einer Person über alle Abfragen. Für saubere Zuordnung überall dieselbe E-Mail verwenden.
+- **Weiterbildungsplan:** je Teilnehmer bearbeitbar (Maßnahme, Verantwortlich, Termin, Status), Vorschlag aus den Lernzielen, druckbar/PDF.
+
+## Komfort
+
+Abfragen und Fragen duplizieren, Teilnehmer per CSV importieren, Fragen inkl. Bildern exportieren/importieren,
+Antwortoptionen je Teilnehmer gemischt (pro Frage abschaltbar), touchfreundliche Bedienung inkl. Zeichnen.
+
 ## Optionen je Abfrage
 
 - **Zeitlimit** (Minuten, leer = keins): läuft ab dem ersten Öffnen des Links, Countdown für den Teilnehmer, danach automatische Abgabe (serverseitig durchgesetzt).

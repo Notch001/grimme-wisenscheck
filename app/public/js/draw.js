@@ -82,7 +82,7 @@ export function drawEditor({ symbols = [], value = [], onChange }) {
     svg.innerHTML = gridDefs() + body + `<g class="draft">${d}</g>`;
     for (const [k, b] of Object.entries(toolBtns)) b.classList.toggle('active', k === tool || (k.startsWith('sym:') && tool === 'sym' && k === 'sym:' + sym));
     status.textContent = ({
-      select: 'Elemente anklicken und verschieben', line: 'Klicken = Punkt setzen · Doppelklick = Linie beenden', arrow: 'Klicken = Punkt setzen · Doppelklick = Pfeil beenden',
+      select: 'Elemente anklicken und verschieben', line: 'Tippen = Punkt setzen · Doppelklick oder „Linie fertig“ = beenden', arrow: 'Tippen = Punkt setzen · Doppelklick oder „Linie fertig“ = beenden',
       free: 'Mit gedrückter Maustaste/Finger zeichnen', rect: 'Ziehen für Rechteck', ell: 'Ziehen für Kreis/Ellipse', tri: 'Ziehen für Dreieck', text: 'Klicken, dann Text eingeben', sym: 'Klicken, um das Symbol zu platzieren',
     })[tool] || '';
   }
@@ -171,6 +171,7 @@ export function drawEditor({ symbols = [], value = [], onChange }) {
     mk('ell', '◯', setTool('ell'), 'Kreis / Ellipse'),
     mk('tri', '△', setTool('tri'), 'Dreieck'),
     mk('text', 'T Text', setTool('text')),
+    h('button', { type: 'button', class: 'btn small primary', title: 'Laufende Linie abschließen (für Touch-Bedienung)', onclick: () => { if (draft?.t === 'line') { draft.pts.length >= 2 ? finishLine() : (draft = null, redraw()); } } }, '✓ Linie fertig'),
     h('span', { class: 'sep' }),
     h('button', { type: 'button', class: 'btn small', onclick: rotate, title: 'Ausgewähltes Symbol drehen' }, '↻ Drehen'),
     h('button', { type: 'button', class: 'btn small', onclick: del, title: 'Ausgewähltes Element löschen' }, '✕ Löschen'),
