@@ -44,6 +44,14 @@ test('manuelle Typen liefern null', () => {
   assert.equal(grade(mk('practical', {}), null), null);
 });
 
+test('Kurztext: akzeptierte Antworten sind deutsch, fremde Sprache => manuell', () => {
+  const t = mk('text', { accepted: ['Ohm', 'ohm'] });
+  assert.equal(grade(t, { value: 'Ohm' }), 1);
+  assert.equal(grade(t, { value: 'Ohm', lang: 'de' }), 1);
+  assert.equal(grade(t, { value: 'Ohm', lang: 'en' }), null);
+  assert.equal(grade(t, { value: '', lang: 'en' }), 0);
+});
+
 test('Teilnehmeransicht enthält keine Lösungen', () => {
   const secret = ['correct', 'wrong', 'pairs', 'targets', 'areas', 'accepted', 'answer', 'tolerance', 'criteria'];
   for (const [i, d] of QUESTIONS.entries()) {

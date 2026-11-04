@@ -73,3 +73,15 @@ CREATE TABLE IF NOT EXISTS plans (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by     TEXT NOT NULL DEFAULT ''
 );
+
+-- Übersetzungen (Oberfläche, Themen, Abfragen, Fragen); Quellsprache ist Deutsch
+CREATE TABLE IF NOT EXISTS translations (
+  kind        TEXT NOT NULL,                    -- 'ui' | 'topic' | 'survey' | 'question'
+  ref_id      INT  NOT NULL,                    -- 0 bei 'ui'
+  lang        TEXT NOT NULL,
+  data        JSONB NOT NULL DEFAULT '{}',      -- flache Map: Schlüssel -> übersetzter Text
+  source_hash TEXT NOT NULL DEFAULT '',         -- Hash der deutschen Quelltexte zum Zeitpunkt der Übersetzung
+  reviewed    BOOLEAN NOT NULL DEFAULT false,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (kind, ref_id, lang)
+);

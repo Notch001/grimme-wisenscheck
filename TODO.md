@@ -20,6 +20,8 @@ Stand: Prototyp läuft (Coolify, Unterpfad `/wissen`). Offene Punkte nach Priori
 - [ ] Docker-Setup mit `docker compose up --build` auf einem frischen System gegenprüfen
 
 ## Optional / später
+- [ ] Mehrsprachigkeit: Übersetzungen pro Sprache fachlich gegenlesen und als „geprüft“ markieren; Qualität des Übersetzers an echten Fachtexten testen (ggf. DeepL für einzelne Sprachen)
+- [ ] Mehrsprachigkeit: Texte in Bildern, Singular bei „{n} Aufgaben“ (en), Admin-Bereich bleiben einsprachig
 - [ ] Zuordnung von Teilnehmern zu einzelnen Ausbildern (Sichtbarkeit einschränken)
 - [ ] E-Mail-Versand der Teilnehmerlinks (eigener Mailserver im Docker-Setup)
 - [ ] Automatische Vorprüfung von Schaltplan-Zeichnungen gegen eine Musterlösung
