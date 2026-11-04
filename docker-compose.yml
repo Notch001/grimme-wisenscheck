@@ -1,4 +1,5 @@
-# Wissenscheck – alles läuft lokal in Docker, keine externen Dienste.
+# Wissenscheck – alles läuft lokal in Docker, keine externen Dienste
+# (auch die automatische Übersetzung läuft im eigenen Container „translate“).
 services:
   db:
     image: postgres:16-alpine
@@ -27,11 +28,27 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-bitte-in-der-env-datei-aendern}
       SEED_DEMO: ${SEED_DEMO:-true}
       BASE_PATH: ${BASE_PATH:-}
+      ENABLED_LANGS: ${ENABLED_LANGS:-en,pl,tr,ro,fr,es,it,nl,cs,hu,ru,uk,ar}
+      TRANSLATE_URL: ${TRANSLATE_URL:-http://translate:5000}
+      TRANSLATE_PROVIDER: ${TRANSLATE_PROVIDER:-}
+      DEEPL_API_KEY: ${DEEPL_API_KEY:-}
     volumes:
       - uploads:/data/uploads
     ports:
       - "${PORT:-3000}:3000"
 
+  # Eigener Übersetzer (LibreTranslate). Lädt nur die Sprachen aus ENABLED_LANGS (+ Deutsch) – das hält den Speicherbedarf klein.
+  # Ohne Übersetzer läuft das Tool weiter; nur die Schaltfläche „Übersetzen“ im Admin-Bereich meldet dann einen Fehler.
+  translate:
+    image: libretranslate/libretranslate:latest
+    restart: unless-stopped
+    environment:
+      LT_LOAD_ONLY: de,${ENABLED_LANGS:-en,pl,tr,ro,fr,es,it,nl,cs,hu,ru,uk,ar}
+      LT_UPDATE_MODELS: "false"
+    volumes:
+      - translatemodels:/home/libretranslate/.local
+
 volumes:
+  translatemodels:
   dbdata:
   uploads:
