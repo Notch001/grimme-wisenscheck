@@ -121,3 +121,15 @@ textarea { resize: vertical; } input[type=checkbox], input[type=radio] { width: 
   .choice, .chip { min-height: 54px; } .orderitem { padding: .8rem; } select, input[type=text], input[type=number] { min-height: 48px; }
   .dot { width: 30px; height: 30px; } .draw-toolbar { gap: .5rem; }
 }
+
+/* ===== Admin-Seite "Sprachen" ===== */
+.lang-tbl td { vertical-align: top; } .lang-done { color: var(--ok, inherit); font-weight: 700; }
+.lang-msg:empty { display: none; } .lang-errors { margin: .4rem 0 0; padding-left: 1.2rem; font-size: .88rem; }
+.lang-filter select, .lang-filter input[type=search] { width: auto; min-width: 180px; } .lang-filter input[type=search] { flex: 1 1 220px; }
+.lang-group { margin-bottom: .5rem; } .lang-group summary { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
+.lang-body { padding: .2rem 0 .8rem; }
+.lang-field { display: grid; grid-template-columns: 1fr 1fr; gap: .3rem .8rem; padding: .6rem 0; border-top: 1px solid var(--line); }
+.lang-label { grid-column: 1 / -1; font-weight: 600; } .lang-src { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+.lang-field textarea, .lang-field input { width: 100%; }
+.lang-actions { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--line); }
+@media (max-width: 700px) { .lang-field { grid-template-columns: 1fr; } }

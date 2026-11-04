@@ -2,6 +2,7 @@
 import { h, api, clear, toast, LEVEL, fmtDate, BASE } from './dom.js';
 import { questionEditor } from './qeditor.js';
 import { reviewView, gradePanel } from './review.js';
+import { languagesPage, languageDetailPage } from './translations.js';
 
 let root, meta, me;
 const link = (token) => `${location.origin}${BASE}/t/${token}`;
@@ -31,7 +32,7 @@ function loginPage() {
 function layout(active, ...content) {
   clear(root).append(
     h('header', { class: 'a-head noprint' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'),
-      h('nav', {}, h('a', { href: '#/surveys', class: active === 'surveys' ? 'on' : '' }, 'Abfragen'), h('a', { href: '#/questions', class: active === 'questions' ? 'on' : '' }, 'Fragenkatalog'), h('a', { href: '#/people', class: active === 'people' ? 'on' : '' }, 'Verläufe'), h('a', { href: '#/users', class: active === 'users' ? 'on' : '' }, 'Benutzer')),
+      h('nav', {}, h('a', { href: '#/surveys', class: active === 'surveys' ? 'on' : '' }, 'Abfragen'), h('a', { href: '#/questions', class: active === 'questions' ? 'on' : '' }, 'Fragenkatalog'), h('a', { href: '#/people', class: active === 'people' ? 'on' : '' }, 'Verläufe'), h('a', { href: '#/languages', class: active === 'languages' ? 'on' : '' }, 'Sprachen'), h('a', { href: '#/users', class: active === 'users' ? 'on' : '' }, 'Benutzer')),
       h('span', { class: 'muted small' }, me?.username),
       h('button', { class: 'btn small', onclick: async () => { await api('/logout', { method: 'POST', body: {} }); adminApp(root); } }, 'Abmelden')),
     h('main', { class: 'a-main' }, ...content));
@@ -44,6 +45,7 @@ async function route() {
     if (page === 'results') return await resultsPage(id);
     if (page === 'participant') return await participantPage(id);
     if (page === 'questions') return await questionsPage();
+    if (page === 'languages') return await (id ? languageDetailPage(layout, decodeURIComponent(id)) : languagesPage(layout));
     if (page === 'users') return await usersPage();
     if (page === 'people') return await peoplePage();
     if (page === 'person') return await personPage(decodeURIComponent(id));
