@@ -58,4 +58,4 @@ export const LEVEL = {
   pending: { label: 'offen', cls: 'lv-pending' },
 };
 
-export const fmtDate = (s) => (s ? new Date(s).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : '–');
+export const fmtDate = (s, locale = 'de-DE') => (s ? new Date(s).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' }) : '–');

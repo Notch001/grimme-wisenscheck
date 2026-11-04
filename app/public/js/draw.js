@@ -1,5 +1,6 @@
 // Zeichen-Editor für Schaltpläne und Schaltzeichen + gemeinsames Rendering (auch für die Auswertung).
 import { h, esc } from './dom.js';
+import { t } from './i18n.js';
 
 export const W = 800, H = 400, GRID = 20;
 
@@ -52,6 +53,7 @@ export function drawingView(elements) {
   return svg;
 }
 
+const symLabel = (k) => { const s = t('draw.sym.' + k); return s.startsWith('draw.sym.') ? SYMBOLS[k].label : s; };
 const snap = (v) => Math.round(v / GRID) * GRID;
 
 export function drawEditor({ symbols = [], value = [], onChange }) {
@@ -82,8 +84,8 @@ export function drawEditor({ symbols = [], value = [], onChange }) {
     svg.innerHTML = gridDefs() + body + `<g class="draft">${d}</g>`;
     for (const [k, b] of Object.entries(toolBtns)) b.classList.toggle('active', k === tool || (k.startsWith('sym:') && tool === 'sym' && k === 'sym:' + sym));
     status.textContent = ({
-      select: 'Elemente anklicken und verschieben', line: 'Tippen = Punkt setzen · Doppelklick oder „Linie fertig“ = beenden', arrow: 'Tippen = Punkt setzen · Doppelklick oder „Linie fertig“ = beenden',
-      free: 'Mit gedrückter Maustaste/Finger zeichnen', rect: 'Ziehen für Rechteck', ell: 'Ziehen für Kreis/Ellipse', tri: 'Ziehen für Dreieck', text: 'Klicken, dann Text eingeben', sym: 'Klicken, um das Symbol zu platzieren',
+      select: t('draw.status.select'), line: t('draw.status.line'), arrow: t('draw.status.line'),
+      free: t('draw.status.free'), rect: t('draw.status.rect'), ell: t('draw.status.ell'), tri: t('draw.status.tri'), text: t('draw.status.text'), sym: t('draw.status.sym'),
     })[tool] || '';
   }
   function pos(ev, doSnap = true) {
@@ -117,7 +119,7 @@ export function drawEditor({ symbols = [], value = [], onChange }) {
     } else if (tool === 'rect' || tool === 'ell' || tool === 'tri') {
       draft = { t: tool, ox: p[0], oy: p[1] }; shapeUpdate(draft, p); svg.setPointerCapture(ev.pointerId);
     } else if (tool === 'text') {
-      const s = prompt('Beschriftung:');
+      const s = prompt(t('draw.text.prompt'));
       if (s && s.trim()) { els.push({ t: 'text', x: p[0], y: p[1], s: s.trim() }); sel = els.length - 1; commit(); }
     } else if (tool === 'sym' && sym) {
       els.push({ t: 'sym', k: sym, x: p[0], y: p[1], r: 0 }); sel = els.length - 1; commit();
@@ -163,26 +165,26 @@ export function drawEditor({ symbols = [], value = [], onChange }) {
   const mk = (key, label, fn, title) => { const b = h('button', { type: 'button', class: 'btn small tool', title: title || label, onclick: fn }, label); toolBtns[key] = b; return b; };
   const setTool = (t) => () => { if (draft) finishLine(); tool = t; sel = -1; redraw(); };
   const toolbar = h('div', { class: 'draw-toolbar' },
-    mk('select', '⇱ Auswahl', setTool('select')),
-    mk('line', '／ Leitung', setTool('line')),
-    mk('arrow', '➝ Pfeil', setTool('arrow')),
-    mk('free', '✎ Freihand', setTool('free')),
-    mk('rect', '▭', setTool('rect'), 'Rechteck'),
-    mk('ell', '◯', setTool('ell'), 'Kreis / Ellipse'),
-    mk('tri', '△', setTool('tri'), 'Dreieck'),
-    mk('text', 'T Text', setTool('text')),
-    h('button', { type: 'button', class: 'btn small primary', title: 'Laufende Linie abschließen (für Touch-Bedienung)', onclick: () => { if (draft?.t === 'line') { draft.pts.length >= 2 ? finishLine() : (draft = null, redraw()); } } }, '✓ Linie fertig'),
+    mk('select', '⇱ ' + t('draw.tool.select'), setTool('select')),
+    mk('line', '／ ' + t('draw.tool.line'), setTool('line')),
+    mk('arrow', '➝ ' + t('draw.tool.arrow'), setTool('arrow')),
+    mk('free', '✎ ' + t('draw.tool.free'), setTool('free')),
+    mk('rect', '▭', setTool('rect'), t('draw.tool.rect')),
+    mk('ell', '◯', setTool('ell'), t('draw.tool.ell')),
+    mk('tri', '△', setTool('tri'), t('draw.tool.tri')),
+    mk('text', 'T ' + t('draw.tool.text'), setTool('text')),
+    h('button', { type: 'button', class: 'btn small primary', title: t('draw.finish.title'), onclick: () => { if (draft?.t === 'line') { draft.pts.length >= 2 ? finishLine() : (draft = null, redraw()); } } }, '✓ ' + t('draw.finish')),
     h('span', { class: 'sep' }),
-    h('button', { type: 'button', class: 'btn small', onclick: rotate, title: 'Ausgewähltes Symbol drehen' }, '↻ Drehen'),
-    h('button', { type: 'button', class: 'btn small', onclick: del, title: 'Ausgewähltes Element löschen' }, '✕ Löschen'),
-    h('button', { type: 'button', class: 'btn small', onclick: undo }, '↶ Zurück'),
-    h('button', { type: 'button', class: 'btn small', onclick: () => { if (els.length && confirm('Alles löschen?')) { els = []; sel = -1; commit(); } } }, 'Alles löschen'),
+    h('button', { type: 'button', class: 'btn small', onclick: rotate, title: t('draw.rotate.title') }, '↻ ' + t('draw.rotate')),
+    h('button', { type: 'button', class: 'btn small', onclick: del, title: t('draw.delete.title') }, '✕ ' + t('draw.delete')),
+    h('button', { type: 'button', class: 'btn small', onclick: undo }, '↶ ' + t('draw.undo')),
+    h('button', { type: 'button', class: 'btn small', onclick: () => { if (els.length && confirm(t('draw.clear.confirm'))) { els = []; sel = -1; commit(); } } }, t('draw.clear')),
   );
-  const palette = symbols.length ? h('div', { class: 'draw-toolbar palette' }, h('span', { class: 'muted small' }, 'Symbole:'),
+  const palette = symbols.length ? h('div', { class: 'draw-toolbar palette' }, h('span', { class: 'muted small' }, t('draw.symbols')),
     symbols.map((k) => {
-      const b = h('button', { type: 'button', class: 'btn small tool symbtn', title: SYMBOLS[k].label, onclick: () => { if (draft) finishLine(); tool = 'sym'; sym = k; sel = -1; redraw(); } });
+      const b = h('button', { type: 'button', class: 'btn small tool symbtn', title: symLabel(k), onclick: () => { if (draft) finishLine(); tool = 'sym'; sym = k; sel = -1; redraw(); } });
       b.innerHTML = `<svg viewBox="-44 -24 88 48" width="44" height="24">${SYMBOLS[k].svg}</svg>`;
-      b.append(' ' + SYMBOLS[k].label);
+      b.append(' ' + symLabel(k));
       toolBtns['sym:' + k] = b;
       return b;
     })) : null;
