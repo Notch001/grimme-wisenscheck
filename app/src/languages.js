@@ -32,17 +32,35 @@ export const DEFAULT_LANGS = 'en,pl,tr,ro,fr,es,it,nl,cs,hu,ru,uk,ar';
 
 export const langInfo = (code) => (CATALOG[code] ? { code, name: CATALOG[code].name, rtl: !!CATALOG[code].rtl } : null);
 
-// Aktivierte Sprachen aus ENABLED_LANGS (ohne Quellsprache, nur Codes aus dem Katalog)
-export function enabledLanguages() {
-  const raw = process.env.ENABLED_LANGS ?? DEFAULT_LANGS;
+// Aktivierte Sprachen: Auswahl aus dem Admin-Bereich (in der DB gespeichert), sonst Startwert aus ENABLED_LANGS.
+let chosen = null;
+
+function parseCodes(raw) {
   const seen = new Set();
   const out = [];
-  for (const c of raw.split(',').map((s) => s.trim().toLowerCase())) {
-    if (!c || c === SOURCE || seen.has(c) || !CATALOG[c]) continue;
-    seen.add(c);
-    out.push(langInfo(c));
+  for (const c of raw) {
+    const code = String(c).trim().toLowerCase();
+    if (!code || code === SOURCE || seen.has(code) || !CATALOG[code]) continue;
+    seen.add(code);
+    out.push(code);
   }
   return out;
 }
 
+export function setEnabledCodes(codes) {
+  chosen = parseCodes(codes);
+  return chosen;
+}
+
+export function enabledLanguages() {
+  const codes = chosen ?? parseCodes((process.env.ENABLED_LANGS ?? DEFAULT_LANGS).split(','));
+  return codes.map(langInfo);
+}
+
 export const isEnabled = (code) => enabledLanguages().some((l) => l.code === code);
+
+// Alle wählbaren Sprachen mit Markierung, ob sie aktiv sind
+export const catalogList = () => {
+  const on = new Set(enabledLanguages().map((l) => l.code));
+  return Object.keys(CATALOG).map((code) => ({ ...langInfo(code), enabled: on.has(code) }));
+};

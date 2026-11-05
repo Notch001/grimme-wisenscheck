@@ -51,6 +51,23 @@ export async function languagesPage(layout) {
       h('td', { class: 'right' }, all, ' ', h('a', { class: 'btn small', href: `#/languages/${l.code}` }, 'Bearbeiten')));
   });
 
+  // Sprachen freigeben: Auswahl aus dem ganzen Katalog, wird in der Datenbank gespeichert
+  const boxes = (st.available || []).map((l) => {
+    const unsupported = st.supported && !st.supported.includes(l.code);
+    const cb = h('input', { type: 'checkbox', id: `lang-on-${l.code}`, value: l.code, checked: l.enabled });
+    return h('label', { class: 'lang-pick', for: `lang-on-${l.code}` }, cb, ' ', h('b', {}, l.name), ' ', h('span', { class: 'tag' }, l.code),
+      unsupported ? h('span', { class: 'small warn' }, ' Übersetzer lädt diese Sprache nicht') : null);
+  });
+  const manage = h('details', { class: 'card' },
+    h('summary', {}, h('b', {}, 'Sprachen freigeben'), h('span', { class: 'muted small' }, ` · ${st.languages.length} aktiv`)),
+    h('p', { class: 'muted small' }, 'Hier legst du fest, in welche Sprachen übersetzt wird und welche Teilnehmer wählen können. Abgewählte Sprachen werden nur ausgeblendet, ihre Übersetzungen bleiben gespeichert. ',
+      'Der Übersetzer selbst lädt nur die Sprachen aus ', h('code', {}, 'TRANSLATE_LOAD_LANGS'), ' (Standard: wie ', h('code', {}, 'ENABLED_LANGS'), '). Für Sprachen mit Hinweis dort ergänzen und den Container ', h('code', {}, 'translate'), ' neu starten.'),
+    h('div', { class: 'lang-picks' }, boxes),
+    h('button', { class: 'btn primary', onclick: async (e) => {
+      const codes = [...e.currentTarget.parentElement.querySelectorAll('input:checked')].map((i) => i.value);
+      try { await api('/languages/enabled', { method: 'PUT', body: { codes } }); toast('Sprachen gespeichert', 'ok'); languagesPage(layout); } catch (err) { toast(err.message, 'err'); }
+    } }, 'Speichern'));
+
   layout('languages',
     h('div', { class: 'pagehead' }, h('h1', {}, 'Sprachen')),
     h('p', { class: 'muted' }, 'Fragen und Oberfläche werden auf Deutsch gepflegt und maschinell in die aktivierten Sprachen übersetzt. Maschinelle Übersetzungen können hier korrigiert und als „geprüft“ markiert werden.'),
@@ -60,9 +77,10 @@ export async function languagesPage(layout) {
       h('p', {}, 'Dienst: ', h('b', {}, PROVIDER[st.provider] || st.provider), st.supported ? h('span', { class: 'muted' }, ` · ${st.supported.length} Sprachen unterstützt`) : null),
       hint),
     info,
+    manage,
     h('div', { class: 'card flush scroll' }, st.languages.length ? h('table', { class: 'tbl lang-tbl' },
       h('thead', {}, h('tr', {}, ['Sprache', 'Oberfläche', 'Inhalte', ''].map((t) => h('th', {}, t)))),
-      h('tbody', {}, rows)) : h('p', { class: 'muted', style: { padding: '1rem' } }, 'Keine Sprachen aktiviert (Umgebungsvariable ENABLED_LANGS).')));
+      h('tbody', {}, rows)) : h('p', { class: 'muted', style: { padding: '1rem' } }, 'Keine Sprachen aktiviert. Wähle oben unter „Sprachen freigeben“ mindestens eine aus.')));
 }
 
 // ------------------------------------------------------------------ Detailansicht

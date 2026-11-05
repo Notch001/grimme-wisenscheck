@@ -8,7 +8,7 @@ import { grade, sanitize, validateQuestion, TYPES } from './grading.js';
 import { evaluate, surveyQuestions, participantAnswers } from './results.js';
 import { login, issueCookie, clearCookie, currentUser, requireAdmin, newToken, ensureAdminUser, hashPassword } from './auth.js';
 import { seedIfEmpty } from './seed.js';
-import { SOURCE, enabledLanguages, isEnabled, langInfo } from './languages.js';
+import { SOURCE, enabledLanguages, isEnabled, langInfo, setEnabledCodes, catalogList } from './languages.js';
 import { readDict, fieldsOf, textsOf, hashOf, applyTranslation } from './content-i18n.js';
 import { translateDetailed, translatorInfo, isConfigured } from './translate.js';
 
@@ -663,7 +663,15 @@ app.get('/api/translate/status', requireAdmin, wrap(async (req, res) => {
     }
     languages.push({ ...l, ui, content });
   }
-  res.json({ ...info, languages });
+  res.json({ ...info, languages, available: catalogList() });
+}));
+
+// Aktivierte Sprachen festlegen (Übersetzungen deaktivierter Sprachen bleiben gespeichert)
+app.put('/api/languages/enabled', requireAdmin, wrap(async (req, res) => {
+  if (!Array.isArray(req.body?.codes)) return bad(res, 'Sprachliste fehlt');
+  const codes = setEnabledCodes(req.body.codes);
+  await q(`INSERT INTO settings (key, value) VALUES ('enabled_langs', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(codes)]);
+  res.json({ ok: true, codes });
 }));
 
 app.get('/api/translations/:lang', requireAdmin, wrap(async (req, res) => {
@@ -781,6 +789,8 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   await initDb();
+  const saved = (await q(`SELECT value FROM settings WHERE key='enabled_langs'`)).rows[0];
+  if (saved && Array.isArray(saved.value)) setEnabledCodes(saved.value);
   await ensureAdminUser();
   await seedIfEmpty();
   const port = Number(process.env.PORT) || 3000;
