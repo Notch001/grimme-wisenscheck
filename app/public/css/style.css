@@ -136,3 +136,9 @@ textarea { resize: vertical; } input[type=checkbox], input[type=radio] { width: 
 
 .lang-picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.4rem .8rem;margin:.6rem 0 1rem}
 .lang-pick{display:block;cursor:pointer}
+
+.lang-restart{display:flex;gap:1rem;align-items:center}
+.lang-spinner{flex:none;width:34px;height:34px;border-radius:50%;border:4px solid var(--line);border-top-color:var(--accent);animation:lang-spin 1s linear infinite}
+@keyframes lang-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.lang-spinner{animation-duration:3s}}
+.lang-actions{margin-top:.6rem}

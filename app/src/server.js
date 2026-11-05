@@ -10,7 +10,7 @@ import { login, issueCookie, clearCookie, currentUser, requireAdmin, newToken, e
 import { seedIfEmpty } from './seed.js';
 import { SOURCE, enabledLanguages, isEnabled, langInfo, setEnabledCodes, catalogList } from './languages.js';
 import { readDict, fieldsOf, textsOf, hashOf, applyTranslation } from './content-i18n.js';
-import { translateDetailed, translatorInfo, isConfigured } from './translate.js';
+import { translateDetailed, translatorInfo, isConfigured, providerName, resetInfoCache } from './translate.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, '..', 'public');
@@ -639,7 +639,28 @@ function checkLang(req, res) {
   return lang;
 }
 
+// Wächter im Übersetzer-Container (nur bei LibreTranslate): Neustart mit geänderter Sprachliste
+const CONTROL_URL = () => (process.env.TRANSLATE_CONTROL_URL || 'http://translate:5001').replace(/\/+$/, '');
+async function controlState() {
+  if (providerName() !== 'libretranslate') return { available: false };
+  try {
+    const r = await fetch(`${CONTROL_URL()}/state`, { signal: AbortSignal.timeout(2500) });
+    return r.ok ? { available: true, ...(await r.json()) } : { available: false };
+  } catch { return { available: false }; }
+}
+
+app.post('/api/translate/reload', requireAdmin, wrap(async (req, res) => {
+  const codes = ['de', ...enabledLanguages().map((l) => l.code)];
+  try {
+    const r = await fetch(`${CONTROL_URL()}/reload`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ langs: codes }), signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return bad(res, 'Der Übersetzer hat den Neustart abgelehnt', 502);
+  } catch { return bad(res, 'Neustart nicht möglich: Der Steuerdienst im Übersetzer-Container ist nicht erreichbar. Container „translate“ neu bauen (docker compose up -d --build translate).', 503); }
+  resetInfoCache();
+  res.json({ ok: true, langs: codes });
+}));
+
 app.get('/api/translate/status', requireAdmin, wrap(async (req, res) => {
+  if (req.query.fresh) resetInfoCache();
   const info = await translatorInfo();
   const ents = await loadEntities();
   const languages = [];
@@ -663,7 +684,7 @@ app.get('/api/translate/status', requireAdmin, wrap(async (req, res) => {
     }
     languages.push({ ...l, ui, content });
   }
-  res.json({ ...info, languages, available: catalogList() });
+  res.json({ ...info, languages, available: catalogList(), control: await controlState() });
 }));
 
 // Aktivierte Sprachen festlegen (Übersetzungen deaktivierter Sprachen bleiben gespeichert)

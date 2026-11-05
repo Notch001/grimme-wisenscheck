@@ -32,15 +32,17 @@ services:
       TRANSLATE_URL: ${TRANSLATE_URL:-http://translate:5000}
       TRANSLATE_PROVIDER: ${TRANSLATE_PROVIDER:-}
       DEEPL_API_KEY: ${DEEPL_API_KEY:-}
+      TRANSLATE_CONTROL_URL: ${TRANSLATE_CONTROL_URL:-http://translate:5001}
     volumes:
       - uploads:/data/uploads
     ports:
       - "${PORT:-3000}:3000"
 
   # Eigener Übersetzer (LibreTranslate). Lädt nur die Sprachen aus TRANSLATE_LOAD_LANGS bzw. ENABLED_LANGS (+ Deutsch) – das hält den Speicherbedarf klein.
+  # Ein kleiner Wächter im Container (Port 5001, nur intern) startet LibreTranslate auf Wunsch der App mit geänderter Sprachliste neu.
   # Ohne Übersetzer läuft das Tool weiter; nur die Schaltfläche „Übersetzen“ im Admin-Bereich meldet dann einen Fehler.
   translate:
-    image: libretranslate/libretranslate:latest
+    build: ./translate
     restart: unless-stopped
     environment:
       LT_LOAD_ONLY: de,${TRANSLATE_LOAD_LANGS:-${ENABLED_LANGS:-en,pl,tr,ro,fr,es,it,nl,cs,hu,ru,uk,ar}}
