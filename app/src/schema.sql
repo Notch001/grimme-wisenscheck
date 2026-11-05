@@ -85,3 +85,9 @@ CREATE TABLE IF NOT EXISTS translations (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (kind, ref_id, lang)
 );
+
+-- Einstellungen, die im Admin-Bereich geändert werden (z. B. aktivierte Sprachen)
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value JSONB NOT NULL
+);

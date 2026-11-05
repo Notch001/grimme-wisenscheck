@@ -51,7 +51,8 @@ Antwortoptionen je Teilnehmer gemischt (pro Frage abschaltbar), touchfreundliche
 Fragen und Oberfläche werden auf Deutsch gepflegt und maschinell in weitere Sprachen übersetzt. Teilnehmer wählen die Sprache oben rechts
 oder über den Link (`/t/<token>?lang=pl`); die Wahl bleibt beim Wechsel erhalten (Antworten, Timer, Position).
 
-- **Sprachen** festlegen: `ENABLED_LANGS` in der `.env` (Komma-Liste, Standard `en,pl,tr,ro,fr,es,it,nl,cs,hu,ru,uk,ar`). Deutsch ist immer die Quelle.
+- **Sprachen freigeben:** im Admin-Bereich unter „Sprachen“ → „Sprachen freigeben“ (gespeichert in der Datenbank). `ENABLED_LANGS` in der `.env` ist nur der Startwert. Deutsch ist immer die Quelle.
+- **Übersetzer-Container:** lädt nur die Sprachen aus `TRANSLATE_LOAD_LANGS` (leer = wie `ENABLED_LANGS`). Für zusätzliche Sprachen dort ergänzen und `translate` neu starten.
 - **Übersetzer:** Standard ist der Container `translate` (LibreTranslate, kostenlos, Texte bleiben im Haus). Er lädt nur die aktivierten Sprachen (Speicherbedarf einplanen, grob 2–4 GB).
   Optional für bessere Qualität: `DEEPL_API_KEY` setzen, dann wird DeepL genutzt (Texte gehen an DeepL).
 - **Admin → Sprachen:** je Sprache „Alles übersetzen“ (Oberfläche, Themen, Abfragen, Fragen), danach Texte prüfen/korrigieren und als „geprüft“ markieren.

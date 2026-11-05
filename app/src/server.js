@@ -8,7 +8,7 @@ import { grade, sanitize, validateQuestion, TYPES } from './grading.js';
 import { evaluate, surveyQuestions, participantAnswers } from './results.js';
 import { login, issueCookie, clearCookie, currentUser, requireAdmin, newToken, ensureAdminUser, hashPassword } from './auth.js';
 import { seedIfEmpty } from './seed.js';
-import { SOURCE, enabledLanguages, isEnabled, langInfo } from './languages.js';
+import { SOURCE, enabledLanguages, isEnabled, langInfo, setEnabledCodes, catalogList } from './languages.js';
 import { readDict, fieldsOf, textsOf, hashOf, applyTranslation } from './content-i18n.js';
 import { translateDetailed, translatorInfo, isConfigured } from './translate.js';
 
@@ -663,7 +663,15 @@ app.get('/api/translate/status', requireAdmin, wrap(async (req, res) => {
     }
     languages.push({ ...l, ui, content });
   }
-  res.json({ ...info, languages });
+  res.json({ ...info, languages, available: catalogList() });
+}));
+
+// Aktivierte Sprachen festlegen (Übersetzungen deaktivierter Sprachen bleiben gespeichert)
+app.put('/api/languages/enabled', requireAdmin, wrap(async (req, res) => {
+  if (!Array.isArray(req.body?.codes)) return bad(res, 'Sprachliste fehlt');
+  const codes = setEnabledCodes(req.body.codes);
+  await q(`INSERT INTO settings (key, value) VALUES ('enabled_langs', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(codes)]);
+  res.json({ ok: true, codes });
 }));
 
 app.get('/api/translations/:lang', requireAdmin, wrap(async (req, res) => {
@@ -714,6 +722,16 @@ app.delete('/api/translations/:lang/:kind/:refId', requireAdmin, wrap(async (req
   if (!KINDS.includes(kind)) return bad(res, 'Ungültige Art');
   await q('DELETE FROM translations WHERE lang=$1 AND kind=$2 AND ref_id=$3', [lang, kind, kind === 'ui' ? 0 : Number(req.params.refId) || 0]);
   res.json({ ok: true });
+}));
+
+// Alle Übersetzungen einer Sprache löschen (optional nur bestimmte Arten: ?kinds=ui,question). Das deutsche Original bleibt unberührt.
+app.delete('/api/translations/:lang', requireAdmin, wrap(async (req, res) => {
+  const lang = String(req.params.lang || '').toLowerCase();
+  if (!langInfo(lang)) return bad(res, 'Ungültige Sprache');
+  const kinds = req.query.kinds ? String(req.query.kinds).split(',').map((k) => k.trim()) : KINDS;
+  if (!kinds.length || kinds.some((k) => !KINDS.includes(k))) return bad(res, 'Ungültige Art');
+  const { rowCount } = await q('DELETE FROM translations WHERE lang=$1 AND kind = ANY($2)', [lang, kinds]);
+  res.json({ ok: true, deleted: rowCount });
 }));
 
 app.post('/api/translations/:lang/auto', requireAdmin, wrap(async (req, res) => {
@@ -781,6 +799,8 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   await initDb();
+  const saved = (await q(`SELECT value FROM settings WHERE key='enabled_langs'`)).rows[0];
+  if (saved && Array.isArray(saved.value)) setEnabledCodes(saved.value);
   await ensureAdminUser();
   await seedIfEmpty();
   const port = Number(process.env.PORT) || 3000;

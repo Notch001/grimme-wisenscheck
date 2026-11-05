@@ -37,13 +37,13 @@ services:
     ports:
       - "${PORT:-3000}:3000"
 
-  # Eigener Übersetzer (LibreTranslate). Lädt nur die Sprachen aus ENABLED_LANGS (+ Deutsch) – das hält den Speicherbedarf klein.
+  # Eigener Übersetzer (LibreTranslate). Lädt nur die Sprachen aus TRANSLATE_LOAD_LANGS bzw. ENABLED_LANGS (+ Deutsch) – das hält den Speicherbedarf klein.
   # Ohne Übersetzer läuft das Tool weiter; nur die Schaltfläche „Übersetzen“ im Admin-Bereich meldet dann einen Fehler.
   translate:
     image: libretranslate/libretranslate:latest
     restart: unless-stopped
     environment:
-      LT_LOAD_ONLY: de,${ENABLED_LANGS:-en,pl,tr,ro,fr,es,it,nl,cs,hu,ru,uk,ar}
+      LT_LOAD_ONLY: de,${TRANSLATE_LOAD_LANGS:-${ENABLED_LANGS:-en,pl,tr,ro,fr,es,it,nl,cs,hu,ru,uk,ar}}
       LT_UPDATE_MODELS: "false"
     volumes:
       - translatemodels:/home/libretranslate/.local
