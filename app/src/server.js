@@ -724,6 +724,16 @@ app.delete('/api/translations/:lang/:kind/:refId', requireAdmin, wrap(async (req
   res.json({ ok: true });
 }));
 
+// Alle Übersetzungen einer Sprache löschen (optional nur bestimmte Arten: ?kinds=ui,question). Das deutsche Original bleibt unberührt.
+app.delete('/api/translations/:lang', requireAdmin, wrap(async (req, res) => {
+  const lang = String(req.params.lang || '').toLowerCase();
+  if (!langInfo(lang)) return bad(res, 'Ungültige Sprache');
+  const kinds = req.query.kinds ? String(req.query.kinds).split(',').map((k) => k.trim()) : KINDS;
+  if (!kinds.length || kinds.some((k) => !KINDS.includes(k))) return bad(res, 'Ungültige Art');
+  const { rowCount } = await q('DELETE FROM translations WHERE lang=$1 AND kind = ANY($2)', [lang, kinds]);
+  res.json({ ok: true, deleted: rowCount });
+}));
+
 app.post('/api/translations/:lang/auto', requireAdmin, wrap(async (req, res) => {
   const lang = checkLang(req, res); if (!lang) return;
   if (!isConfigured()) return bad(res, 'Kein Übersetzer konfiguriert. Übersetzer starten (docker compose up -d translate) und TRANSLATE_URL bzw. DEEPL_API_KEY setzen.', 503);

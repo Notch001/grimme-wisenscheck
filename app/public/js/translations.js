@@ -21,6 +21,16 @@ function showResult(r, box) {
   box.replaceChildren(h('div', { class: 'callout' }, h('b', {}, msg), r.errors?.length ? h('ul', { class: 'lang-errors' }, r.errors.slice(0, 20).map((e) => h('li', {}, e)), r.errors.length > 20 ? h('li', {}, `… und ${r.errors.length - 20} weitere`) : null) : null));
 }
 
+// Übersetzungen einer Sprache löschen (nach Rückfrage). kinds leer = alles.
+async function wipe(code, name, label, kinds) {
+  if (!confirm(`${label} in ${name} wirklich löschen? Das deutsche Original bleibt erhalten. Die Übersetzung kann danach neu erzeugt werden, manuelle Korrekturen gehen verloren.`)) return false;
+  try {
+    const r = await api(`/translations/${code}${kinds ? `?kinds=${kinds.join(',')}` : ''}`, { method: 'DELETE' });
+    toast(`${r.deleted} Einträge gelöscht`, 'ok');
+    return true;
+  } catch (err) { toast(err.message, 'err'); return false; }
+}
+
 const progress = (done, total) => h('span', { class: total && done >= total ? 'lang-done' : '' }, `${done}/${total}`);
 
 // ------------------------------------------------------------------ Übersicht
@@ -48,7 +58,8 @@ export async function languagesPage(layout) {
       h('td', {}, progress(l.ui.translated, l.ui.total), l.ui.stale ? h('div', { class: 'small warn' }, `${l.ui.stale} veraltet`) : null),
       h('td', {}, progress(l.content.translated, l.content.total),
         h('div', { class: 'small muted' }, `${l.content.reviewed} geprüft`), l.content.stale ? h('div', { class: 'small warn' }, `${l.content.stale} veraltet`) : null),
-      h('td', { class: 'right' }, all, ' ', h('a', { class: 'btn small', href: `#/languages/${l.code}` }, 'Bearbeiten')));
+      h('td', { class: 'right' }, all, ' ', h('a', { class: 'btn small', href: `#/languages/${l.code}` }, 'Bearbeiten'), ' ',
+        h('button', { class: 'btn small danger', onclick: async () => { if (await wipe(l.code, l.name, 'Alle Übersetzungen', null)) languagesPage(layout); } }, 'Löschen')));
   });
 
   // Sprachen freigeben: Auswahl aus dem ganzen Katalog, wird in der Datenbank gespeichert
@@ -182,6 +193,9 @@ export async function languageDetailPage(layout, code) {
     !ok ? h('div', { class: 'callout' }, st.configured ? 'Der Übersetzer ist nicht erreichbar – maschinelles Übersetzen ist derzeit nicht möglich, manuelle Eingaben funktionieren weiterhin.' : 'Es ist kein Übersetzer eingerichtet – maschinelles Übersetzen ist nicht möglich, manuelle Eingaben funktionieren weiterhin.') : null,
     unsupported ? h('div', { class: 'callout' }, 'Diese Sprache wird vom Übersetzer nicht unterstützt – nur manuelle Übersetzung möglich.') : null,
     h('div', { class: 'card row' }, autoBtn('Oberfläche übersetzen', ['ui']), autoBtn('Themen & Abfragen übersetzen', ['topic', 'survey']), autoBtn('Fragen übersetzen', ['question'])),
+    h('div', { class: 'card row' }, h('span', { class: 'muted small' }, 'Übersetzungen löschen:'),
+      ...[['Oberfläche', ['ui']], ['Themen & Abfragen', ['topic', 'survey']], ['Fragen', ['question']], ['Alle', null]].map(([label, kinds]) =>
+        h('button', { class: 'btn small danger', onclick: async () => { if (await wipe(code, lang.name, label === 'Alle' ? 'Alle Übersetzungen' : `Die Übersetzungen (${label})`, kinds)) await reload(); } }, label))),
     info,
     h('div', { class: 'card row lang-filter' }, sel, search, count),
     list);
