@@ -7,6 +7,12 @@ const KIND_LABEL = { ui: 'Oberfläche', topic: 'Themenbereich', survey: 'Abfrage
 const PAGE_SIZE = 60;
 
 // Button mit Ladezustand: deaktiviert und zeigt "Übersetze …", solange fn läuft.
+async function busy2(btn, fn) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Starte …';
+  try { return await fn(); } finally { btn.disabled = false; btn.textContent = old; }
+}
+
 async function busy(btn, fn) {
   const old = btn.textContent;
   btn.disabled = true; btn.textContent = 'Übersetze …';
@@ -33,11 +39,52 @@ async function wipe(code, name, label, kinds) {
 
 const progress = (done, total) => h('span', { class: total && done >= total ? 'lang-done' : '' }, `${done}/${total}`);
 
+// ------------------------------------------------------------------ Übersetzer neu starten
+const fmtTime = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const missingLangs = (st) => (st.supported ? st.languages.filter((l) => !st.supported.includes(l.code)) : []);
+const isReady = (st) => st.configured && st.reachable && st.control?.state !== 'starting' && missingLangs(st).length === 0;
+
+// Zeigt Animation, bis der Übersetzer wieder läuft und alle freigegebenen Sprachen geladen hat.
+function watchRestart(box, onDone, since = Date.now()) {
+  let stopped = false;
+  const elapsed = h('span', { class: 'muted' }, '0:00');
+  const detail = h('div', { class: 'small muted' });
+  box.replaceChildren(h('div', { class: 'card lang-restart', role: 'status', 'aria-live': 'polite' },
+    h('div', { class: 'lang-spinner', 'aria-hidden': 'true' }),
+    h('div', {}, h('b', {}, 'Übersetzer wird neu gestartet …'),
+      h('div', { class: 'small muted' }, 'Die Sprachmodelle werden geladen. Beim ersten Mal kann das einige Minuten dauern, danach geht es schneller. Du kannst die Seite offen lassen.'),
+      h('div', { class: 'small' }, 'Dauer: ', elapsed), detail)));
+  const timer = setInterval(() => { elapsed.textContent = fmtTime(Date.now() - since); }, 1000);
+  const finish = (fn) => { stopped = true; clearInterval(timer); fn(); };
+  (async function poll() {
+    while (!stopped) {
+      await new Promise((r) => setTimeout(r, 3000));
+      if (stopped || !box.isConnected) return clearInterval(timer);
+      try {
+        const st = await api('/translate/status?fresh=1');
+        const miss = missingLangs(st);
+        detail.textContent = st.control?.state === 'ready' || st.reachable
+          ? (miss.length ? `Noch nicht geladen: ${miss.map((l) => l.name).join(', ')}` : '')
+          : 'Übersetzer startet …';
+        if (isReady(st)) return finish(() => { toast('Übersetzer ist bereit', 'ok'); onDone(); });
+      } catch { /* Server kurz nicht erreichbar, weiter warten */ }
+      if (Date.now() - since > 20 * 60000) return finish(() => { toast('Der Übersetzer braucht ungewöhnlich lange. Bitte Log des Containers „translate“ prüfen.', 'err'); onDone(); });
+    }
+  }());
+}
+
 // ------------------------------------------------------------------ Übersicht
 export async function languagesPage(layout) {
   const st = await api('/translate/status');
   const info = h('div', { class: 'lang-msg' });
+  const restartBox = h('div', {});
   const ok = st.configured && st.reachable;
+  const miss = missingLangs(st);
+  const canRestart = !!st.control?.available;
+  const restart = async (btn) => {
+    try { await busy2(btn, () => api('/translate/reload', { method: 'POST', body: {} })); document.querySelectorAll('.lang-actions button').forEach((b) => { b.disabled = true; }); watchRestart(restartBox, () => languagesPage(layout)); } catch (err) { toast(err.message, 'err'); }
+  };
+  const restartBtn = (label, primary) => h('button', { class: 'btn' + (primary ? ' primary' : ''), onclick: (e) => restart(e.currentTarget) }, label);
 
   const hint = !st.configured
     ? h('div', { class: 'callout' }, h('b', {}, 'Es ist noch kein Übersetzer eingerichtet. '),
@@ -85,13 +132,20 @@ export async function languagesPage(layout) {
     h('div', { class: 'card' },
       h('div', { class: 'row between' }, h('h2', {}, 'Übersetzer'),
         h('span', { class: 'badge ' + (ok ? 'lv-ok' : 'lv-low') }, ok ? 'bereit' : st.configured ? 'nicht erreichbar' : 'nicht eingerichtet')),
-      h('p', {}, 'Dienst: ', h('b', {}, PROVIDER[st.provider] || st.provider), st.supported ? h('span', { class: 'muted' }, ` · ${st.supported.length} Sprachen unterstützt`) : null),
-      hint),
+      h('p', {}, 'Dienst: ', h('b', {}, PROVIDER[st.provider] || st.provider), st.supported ? h('span', { class: 'muted' }, ` · ${st.supported.length} Sprachen geladen`) : null),
+      hint,
+      ok && miss.length ? h('div', { class: 'callout' }, h('b', {}, `Noch nicht geladen: ${miss.map((l) => l.name).join(', ')}. `),
+        canRestart ? ['Starte den Übersetzer neu, damit er diese Sprachen lädt.', h('div', { class: 'lang-actions' }, restartBtn('Übersetzer neu starten und Sprachen laden', true))]
+          : 'Ergänze die Sprachen in TRANSLATE_LOAD_LANGS und starte den Container „translate“ neu.') : null,
+      ok && !miss.length && canRestart ? h('div', { class: 'lang-actions' }, restartBtn('Übersetzer neu starten')) : null),
+    restartBox,
     info,
     manage,
     h('div', { class: 'card flush scroll' }, st.languages.length ? h('table', { class: 'tbl lang-tbl' },
       h('thead', {}, h('tr', {}, ['Sprache', 'Oberfläche', 'Inhalte', ''].map((t) => h('th', {}, t)))),
       h('tbody', {}, rows)) : h('p', { class: 'muted', style: { padding: '1rem' } }, 'Keine Sprachen aktiviert. Wähle oben unter „Sprachen freigeben“ mindestens eine aus.')));
+
+  if (st.control?.state === 'starting') watchRestart(restartBox, () => languagesPage(layout));
 }
 
 // ------------------------------------------------------------------ Detailansicht

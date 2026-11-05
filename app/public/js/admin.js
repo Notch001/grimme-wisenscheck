@@ -2,6 +2,7 @@
 import { h, api, clear, toast, LEVEL, fmtDate, BASE } from './dom.js';
 import { questionEditor } from './qeditor.js';
 import { reviewView, gradePanel } from './review.js';
+import { stackTables } from './responsive.js';
 import { languagesPage, languageDetailPage } from './translations.js';
 
 let root, meta, me;
@@ -15,6 +16,7 @@ export async function adminApp(el) {
   const who = await api('/me');
   if (!who.admin) return loginPage();
   me = who.user;
+  stackTables(root);
   meta = await api('/meta');
   window.addEventListener('hashchange', route);
   route();
@@ -29,13 +31,20 @@ function loginPage() {
   } }, h('div', { class: 'brand big' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'), h('p', { class: 'muted' }, 'Admin-Bereich'), user, pw, h('button', { class: 'btn primary', type: 'submit' }, 'Anmelden'))));
 }
 
+const NAV = [['surveys', 'Abfragen'], ['questions', 'Fragenkatalog'], ['people', 'Verläufe'], ['languages', 'Sprachen'], ['users', 'Benutzer']];
+
 function layout(active, ...content) {
-  clear(root).append(
-    h('header', { class: 'a-head noprint' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'),
-      h('nav', {}, h('a', { href: '#/surveys', class: active === 'surveys' ? 'on' : '' }, 'Abfragen'), h('a', { href: '#/questions', class: active === 'questions' ? 'on' : '' }, 'Fragenkatalog'), h('a', { href: '#/people', class: active === 'people' ? 'on' : '' }, 'Verläufe'), h('a', { href: '#/languages', class: active === 'languages' ? 'on' : '' }, 'Sprachen'), h('a', { href: '#/users', class: active === 'users' ? 'on' : '' }, 'Benutzer')),
-      h('span', { class: 'muted small' }, me?.username),
-      h('button', { class: 'btn small', onclick: async () => { await api('/logout', { method: 'POST', body: {} }); adminApp(root); } }, 'Abmelden')),
-    h('main', { class: 'a-main' }, ...content));
+  const head = h('header', { class: 'a-head noprint' });
+  const toggle = h('button', { class: 'btn icon nav-toggle', type: 'button', 'aria-label': 'Menü', 'aria-expanded': 'false', 'aria-controls': 'a-menu' }, '☰');
+  const setOpen = (on) => { head.classList.toggle('open', on); toggle.setAttribute('aria-expanded', String(on)); toggle.textContent = on ? '✕' : '☰'; toggle.setAttribute('aria-label', on ? 'Menü schließen' : 'Menü'); };
+  toggle.addEventListener('click', () => setOpen(!head.classList.contains('open')));
+  const menu = h('nav', { id: 'a-menu', class: 'a-menu', onclick: (e) => { if (e.target.closest('a')) setOpen(false); } },
+    NAV.map(([id, label]) => h('a', { href: `#/${id}`, class: active === id ? 'on' : '' }, label)),
+    h('span', { class: 'a-user muted small' }, me?.username),
+    h('button', { class: 'btn small', onclick: async () => { await api('/logout', { method: 'POST', body: {} }); adminApp(root); } }, 'Abmelden'));
+  head.append(h('div', { class: 'brand' }, h('span', { class: 'logo' }, '✓'), 'Wissenscheck'), toggle, menu);
+  head.addEventListener('keydown', (e) => { if (e.key === 'Escape' && head.classList.contains('open')) { setOpen(false); toggle.focus(); } });
+  clear(root).append(head, h('main', { class: 'a-main' }, ...content));
 }
 
 async function route() {
