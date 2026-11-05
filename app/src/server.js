@@ -8,6 +8,9 @@ import { grade, sanitize, validateQuestion, TYPES } from './grading.js';
 import { evaluate, surveyQuestions, participantAnswers } from './results.js';
 import { login, issueCookie, clearCookie, currentUser, requireAdmin, newToken, ensureAdminUser, hashPassword } from './auth.js';
 import { seedIfEmpty } from './seed.js';
+import { SOURCE, enabledLanguages, isEnabled, langInfo } from './languages.js';
+import { readDict, fieldsOf, textsOf, hashOf, applyTranslation } from './content-i18n.js';
+import { translateDetailed, translatorInfo, isConfigured } from './translate.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, '..', 'public');
@@ -92,28 +95,65 @@ async function expireIfNeeded(p) {
   }
 }
 
+// Gewünschte Sprache: nur aktivierte Sprachen, sonst Deutsch
+const pickLang = (v) => { const c = String(v || '').trim().toLowerCase(); return c && isEnabled(c) ? c : SOURCE; };
+
+// Übersetzungen einer Sprache: Map "kind:ref_id" -> data
+async function translationMap(lang, { surveyId, topicIds = [], questionIds = [] }) {
+  const { rows } = await q(
+    `SELECT kind, ref_id, data FROM translations WHERE lang=$1 AND (
+       (kind='survey' AND ref_id=$2) OR (kind='topic' AND ref_id = ANY($3::int[])) OR (kind='question' AND ref_id = ANY($4::int[])))`,
+    [lang, surveyId, topicIds, questionIds],
+  );
+  return new Map(rows.map((r) => [`${r.kind}:${r.ref_id}`, r.data]));
+}
+
 app.get('/api/p/:token', wrap(async (req, res) => {
   const p = await loadParticipant(req, res); if (!p) return;
   await expireIfNeeded(p);
+  const lang = pickLang(req.query.lang);
   if (p.status === 'submitted') {
-    const out = { participant: { name: p.name, status: p.status }, survey: { title: p.title } };
+    let tr = new Map();
+    if (lang !== SOURCE) tr = await translationMap(lang, { surveyId: p.survey_id, topicIds: (await q('SELECT id FROM topics')).rows.map((r) => r.id) });
+    const out = { participant: { name: p.name, status: p.status }, survey: applyTranslation('survey', { title: p.title }, tr.get(`survey:${p.survey_id}`)), lang };
     if (p.show_results) {
       const survey = (await q('SELECT * FROM surveys WHERE id=$1', [p.survey_id])).rows[0];
       const ev = evaluate(await surveyQuestions(p.survey_id), await participantAnswers(p.id), survey);
-      out.results = { pct: ev.pct, level: ev.level, pending: ev.pendingCount, topics: ev.topics.map(({ name, pct, level }) => ({ name, pct, level })) };
+      out.results = {
+        pct: ev.pct, level: ev.level, pending: ev.pendingCount,
+        topics: ev.topics.map(({ id, name, pct, level }) => ({ name: applyTranslation('topic', { name }, tr.get(`topic:${id}`)).name, pct, level })),
+      };
     }
     return res.json(out);
   }
-  if (p.survey_status !== 'open') return res.json({ participant: { name: p.name, status: 'closed' }, survey: { title: p.title } });
+  if (p.survey_status !== 'open') {
+    const tr = lang !== SOURCE ? await translationMap(lang, { surveyId: p.survey_id }) : new Map();
+    return res.json({ participant: { name: p.name, status: 'closed' }, survey: applyTranslation('survey', { title: p.title }, tr.get(`survey:${p.survey_id}`)), lang });
+  }
   if (p.status === 'invited') {
     p.started_at = (await q(`UPDATE participants SET status='started', started_at=now() WHERE id=$1 RETURNING started_at`, [p.id])).rows[0].started_at;
   }
-  const questions = (await surveyQuestions(p.survey_id)).map((x) => sanitize(x, p.id));
+  const rawQuestions = await surveyQuestions(p.survey_id);
+  let questions = rawQuestions.map((x) => sanitize(x, p.id)); // Mischen passiert hier, vor dem Überlagern der Texte
+  let survey = { title: p.title, description: p.description };
+  if (lang !== SOURCE) {
+    const tr = await translationMap(lang, {
+      surveyId: p.survey_id, topicIds: [...new Set(rawQuestions.map((x) => x.topic_id).filter(Boolean))], questionIds: rawQuestions.map((x) => x.id),
+    });
+    questions = questions.map((o, i) => {
+      const out = applyTranslation('question', o, tr.get(`question:${o.id}`));
+      const tid = rawQuestions[i].topic_id;
+      if (out.topic && tid) out.topic = applyTranslation('topic', { name: out.topic }, tr.get(`topic:${tid}`)).name;
+      return out;
+    });
+    survey = applyTranslation('survey', survey, tr.get(`survey:${p.survey_id}`));
+  }
   const answers = {};
   for (const a of await participantAnswers(p.id)) answers[a.question_id] = a.response;
   res.json({
     participant: { name: p.name, status: 'started' },
-    survey: { title: p.title, description: p.description },
+    survey,
+    lang,
     deadline: deadlineOf(p),
     now: new Date(),
     questions,
@@ -131,7 +171,13 @@ app.put('/api/p/:token/answers/:qid', wrap(async (req, res) => {
     [p.survey_id, qid],
   );
   if (!rows[0]) return bad(res, 'Frage nicht Teil dieser Abfrage', 404);
-  const response = req.body?.response ?? null;
+  let response = req.body?.response ?? null;
+  // Kurztext in anderer Sprache: Sprache mitspeichern (grade() => manuelle Bewertung); Fremdangaben von lang werden verworfen
+  if (rows[0].type === 'text' && response && typeof response === 'object' && !Array.isArray(response)) {
+    const { lang: _ignored, ...rest } = response; // eslint-disable-line no-unused-vars
+    const lang = pickLang(req.body?.lang);
+    response = lang !== SOURCE ? { ...rest, lang } : rest;
+  }
   await q(
     `INSERT INTO answers (participant_id, question_id, response, auto_score) VALUES ($1,$2,$3,$4)
      ON CONFLICT (participant_id, question_id) DO UPDATE SET response=EXCLUDED.response, auto_score=EXCLUDED.auto_score, updated_at=now()`,
@@ -222,6 +268,7 @@ app.delete('/api/questions/:id', requireAdmin, wrap(async (req, res) => {
   const { rows } = await q('SELECT 1 FROM survey_questions WHERE question_id=$1 LIMIT 1', [req.params.id]);
   if (rows.length) return bad(res, 'Frage wird in einer Abfrage verwendet und kann nicht gelöscht werden', 409);
   await q('DELETE FROM questions WHERE id=$1', [req.params.id]);
+  await q(`DELETE FROM translations WHERE kind='question' AND ref_id=$1`, [req.params.id]);
   res.json({ ok: true });
 }));
 
@@ -287,6 +334,7 @@ app.put('/api/surveys/:id', requireAdmin, wrap(async (req, res) => {
 
 app.delete('/api/surveys/:id', requireAdmin, wrap(async (req, res) => {
   await q('DELETE FROM surveys WHERE id=$1', [req.params.id]);
+  await q(`DELETE FROM translations WHERE kind='survey' AND ref_id=$1`, [req.params.id]);
   res.json({ ok: true });
 }));
 
@@ -527,6 +575,195 @@ app.put('/api/participants/:id/plan', requireAdmin, wrap(async (req, res) => {
            ON CONFLICT (participant_id) DO UPDATE SET items=EXCLUDED.items, notes=EXCLUDED.notes, updated_at=now(), updated_by=EXCLUDED.updated_by`,
     [req.params.id, JSON.stringify(items), String(req.body?.notes || '').slice(0, 5000), me.username]);
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- Sprachen (öffentlich)
+app.get('/api/languages', wrap(async (req, res) => {
+  const { rows } = await q(`SELECT DISTINCT lang FROM translations WHERE kind='ui' AND data <> '{}'::jsonb`);
+  const have = new Set(rows.map((r) => r.lang));
+  if (Object.keys(readDict('en')).length) have.add('en');
+  const languages = [{ code: SOURCE, name: 'Deutsch', rtl: false }, ...enabledLanguages().filter((l) => have.has(l.code))];
+  res.json({ source: SOURCE, languages });
+}));
+
+app.get('/api/i18n/:lang', wrap(async (req, res) => {
+  const lang = req.params.lang;
+  const info = lang === SOURCE ? { code: SOURCE, rtl: false } : isEnabled(lang) ? langInfo(lang) : null;
+  if (!info) return bad(res, 'Sprache unbekannt', 404);
+  let dict = readDict(SOURCE);
+  if (lang !== SOURCE) {
+    if (lang === 'en') dict = { ...dict, ...readDict('en') };
+    const row = (await q(`SELECT data FROM translations WHERE kind='ui' AND ref_id=0 AND lang=$1`, [lang])).rows[0];
+    dict = { ...dict, ...Object.fromEntries(Object.entries(row?.data || {}).filter(([, v]) => typeof v === 'string' && v.trim() !== '')) };
+  }
+  res.json({ lang, rtl: !!info.rtl, dict });
+}));
+
+// ---------------------------------------------------------------- Admin: Übersetzungen
+const KINDS = ['ui', 'topic', 'survey', 'question'];
+
+// Alle übersetzbaren Einheiten mit deutschen Texten und Hash
+async function loadEntities() {
+  const ents = [];
+  const push = (kind, row, extra = {}) => {
+    const texts = textsOf(kind, row);
+    if (Object.keys(texts).length) ents.push({ kind, ref_id: kind === 'ui' ? 0 : row.id, row, texts, hash: hashOf(texts), ...extra });
+  };
+  push('ui', readDict(SOURCE));
+  for (const t of (await q('SELECT * FROM topics ORDER BY sort, name')).rows) push('topic', t);
+  for (const s of (await q('SELECT * FROM surveys ORDER BY id DESC')).rows) push('survey', s);
+  const { rows } = await q('SELECT qu.*, t.name AS topic_name FROM questions qu LEFT JOIN topics t ON t.id=qu.topic_id ORDER BY t.sort NULLS LAST, qu.id');
+  for (const x of rows) push('question', x);
+  return ents;
+}
+const trKey = (kind, id) => `${kind}:${id}`;
+async function loadTranslations(lang) {
+  const { rows } = await q('SELECT * FROM translations WHERE lang=$1', [lang]);
+  return new Map(rows.map((r) => [trKey(r.kind, r.ref_id), r]));
+}
+const hasText = (v) => typeof v === 'string' && v.trim() !== '';
+// Vorhandene Oberflächen-Texte, die nicht aus der DB kommen (handgepflegte en.json)
+const uiBase = (lang) => (lang === 'en' ? readDict('en') : {});
+
+function entityStatus(ent, tr, lang) {
+  if (!tr) {
+    const base = uiBase(lang);
+    return ent.kind === 'ui' && Object.keys(ent.texts).every((k) => hasText(base[k])) ? 'ok' : 'missing';
+  }
+  return tr.source_hash === ent.hash ? 'ok' : 'stale';
+}
+
+function checkLang(req, res) {
+  const lang = String(req.params.lang || '').toLowerCase();
+  if (!isEnabled(lang)) { bad(res, 'Ungültige Sprache'); return null; }
+  return lang;
+}
+
+app.get('/api/translate/status', requireAdmin, wrap(async (req, res) => {
+  const info = await translatorInfo();
+  const ents = await loadEntities();
+  const languages = [];
+  for (const l of enabledLanguages()) {
+    const trs = await loadTranslations(l.code);
+    const base = uiBase(l.code);
+    const ui = { total: 0, translated: 0, stale: 0 };
+    const content = { total: 0, translated: 0, reviewed: 0, stale: 0 };
+    for (const e of ents) {
+      const tr = trs.get(trKey(e.kind, e.ref_id));
+      if (e.kind === 'ui') {
+        const keys = Object.keys(e.texts);
+        ui.total = keys.length;
+        ui.translated = keys.filter((k) => hasText(tr?.data?.[k]) || hasText(base[k])).length;
+        if (tr && tr.source_hash !== e.hash) ui.stale = keys.filter((k) => hasText(tr.data?.[k])).length;
+        continue;
+      }
+      content.total++;
+      if (!tr) continue;
+      if (tr.source_hash === e.hash) { content.translated++; if (tr.reviewed) content.reviewed++; } else content.stale++;
+    }
+    languages.push({ ...l, ui, content });
+  }
+  res.json({ ...info, languages });
+}));
+
+app.get('/api/translations/:lang', requireAdmin, wrap(async (req, res) => {
+  const lang = checkLang(req, res); if (!lang) return;
+  const trs = await loadTranslations(lang);
+  const base = uiBase(lang);
+  const groups = (await loadEntities()).map((e) => {
+    const tr = trs.get(trKey(e.kind, e.ref_id));
+    const status = entityStatus(e, tr, lang);
+    const fields = fieldsOf(e.kind, e.row).map((f) => ({ ...f, text: hasText(tr?.data?.[f.key]) ? tr.data[f.key] : (e.kind === 'ui' && hasText(base[f.key]) ? base[f.key] : null) }));
+    const g = { kind: e.kind, ref_id: e.ref_id, status, reviewed: tr ? tr.reviewed : (e.kind === 'ui' && status === 'ok'), fields };
+    if (e.kind === 'ui') g.title = 'Oberfläche (Teilnehmer-Texte)';
+    else if (e.kind === 'topic') g.title = e.row.name;
+    else if (e.kind === 'survey') g.title = e.row.title;
+    else {
+      g.title = e.row.prompt.length > 70 ? `${e.row.prompt.slice(0, 70)}…` : e.row.prompt;
+      g.subtitle = [TYPES[e.row.type]?.label || e.row.type, e.row.topic_name].filter(Boolean).join(' · ');
+    }
+    return g;
+  });
+  const order = (g) => KINDS.indexOf(g.kind);
+  groups.sort((a, b) => order(a) - order(b)); // stabil: Reihenfolge innerhalb der Art bleibt
+  res.json({ lang, groups });
+}));
+
+app.put('/api/translations/:lang/:kind/:refId', requireAdmin, wrap(async (req, res) => {
+  const lang = checkLang(req, res); if (!lang) return;
+  const { kind } = req.params;
+  if (!KINDS.includes(kind)) return bad(res, 'Ungültige Art');
+  const refId = kind === 'ui' ? 0 : Number(req.params.refId);
+  if (!Number.isInteger(refId)) return bad(res, 'Ungültige ID');
+  const ent = (await loadEntities()).find((e) => e.kind === kind && e.ref_id === refId);
+  if (!ent) return bad(res, 'Nicht gefunden', 404);
+  const given = req.body?.texts && typeof req.body.texts === 'object' ? req.body.texts : {};
+  const data = {};
+  for (const k of Object.keys(ent.texts)) if (hasText(given[k])) data[k] = String(given[k]);
+  await q(
+    `INSERT INTO translations (kind, ref_id, lang, data, source_hash, reviewed) VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (kind, ref_id, lang) DO UPDATE SET data=EXCLUDED.data, source_hash=EXCLUDED.source_hash, reviewed=EXCLUDED.reviewed, updated_at=now()`,
+    [kind, refId, lang, JSON.stringify(data), ent.hash, !!req.body?.reviewed],
+  );
+  res.json({ ok: true });
+}));
+
+app.delete('/api/translations/:lang/:kind/:refId', requireAdmin, wrap(async (req, res) => {
+  const lang = checkLang(req, res); if (!lang) return;
+  const { kind } = req.params;
+  if (!KINDS.includes(kind)) return bad(res, 'Ungültige Art');
+  await q('DELETE FROM translations WHERE lang=$1 AND kind=$2 AND ref_id=$3', [lang, kind, kind === 'ui' ? 0 : Number(req.params.refId) || 0]);
+  res.json({ ok: true });
+}));
+
+app.post('/api/translations/:lang/auto', requireAdmin, wrap(async (req, res) => {
+  const lang = checkLang(req, res); if (!lang) return;
+  if (!isConfigured()) return bad(res, 'Kein Übersetzer konfiguriert. Übersetzer starten (docker compose up -d translate) und TRANSLATE_URL bzw. DEEPL_API_KEY setzen.', 503);
+  const b = req.body || {};
+  const kinds = Array.isArray(b.kinds) && b.kinds.length ? b.kinds.filter((k) => KINDS.includes(k)) : KINDS;
+  const only = b.only && KINDS.includes(b.only.kind) ? { kind: b.only.kind, ref_id: b.only.kind === 'ui' ? 0 : Number(b.only.ref_id) } : null;
+  const force = !!b.force;
+  const trs = await loadTranslations(lang);
+  const result = { translated: 0, skipped: 0, failed: 0, errors: [] };
+  let todo = (await loadEntities()).filter((e) => (only ? e.kind === only.kind && e.ref_id === only.ref_id : kinds.includes(e.kind)));
+  if (only && !todo.length) return bad(res, 'Nicht gefunden', 404);
+  todo = todo.filter((e) => {
+    const tr = trs.get(trKey(e.kind, e.ref_id));
+    const skip = !force && entityStatus(e, tr, lang) === 'ok'; // aktuell (auch geprüft) => nichts zu tun
+    if (skip) result.skipped++;
+    return !skip;
+  });
+
+  const CHUNK = 25; // je Durchgang speichern, damit Fortschritt bei Abbruch erhalten bleibt
+  for (let c = 0; c < todo.length; c += CHUNK) {
+    const chunk = todo.slice(c, c + CHUNK);
+    const flat = chunk.flatMap((e, ei) => Object.entries(e.texts).map(([key, text]) => ({ ei, key, text })));
+    let out;
+    try {
+      out = await translateDetailed(flat.map((f) => f.text), lang);
+    } catch (e) {
+      result.failed += todo.length - c;
+      result.errors.push(e.message);
+      break;
+    }
+    const failedIdx = new Set(out.failed);
+    for (const [ei, e] of chunk.entries()) {
+      const data = {};
+      let broken = false;
+      flat.forEach((f, i) => {
+        if (f.ei !== ei) return;
+        if (failedIdx.has(i)) broken = true; else data[f.key] = out.texts[i];
+      });
+      // Bei Platzhalterverlust bleibt der Eintrag "veraltet" (leerer Hash), damit er erneut versucht wird
+      await q(
+        `INSERT INTO translations (kind, ref_id, lang, data, source_hash, reviewed) VALUES ($1,$2,$3,$4,$5,false)
+         ON CONFLICT (kind, ref_id, lang) DO UPDATE SET data=EXCLUDED.data, source_hash=EXCLUDED.source_hash, reviewed=false, updated_at=now()`,
+        [e.kind, e.ref_id, lang, JSON.stringify(data), broken ? '' : e.hash],
+      );
+      if (broken) { result.failed++; result.errors.push(`${e.kind} ${e.ref_id}: Platzhalter im Ergebnis verloren, Originaltext beibehalten`); } else result.translated++;
+    }
+  }
+  res.json(result);
 }));
 
 // ---------------------------------------------------------------- Frontend

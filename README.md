@@ -46,6 +46,20 @@ Antwortoptionen je Teilnehmer gemischt (pro Frage abschaltbar), touchfreundliche
 - **Schwellenwerte** für „Schulungsbedarf“ / „Auffrischung“ (Standard 50 / 75 %).
 - **Ergebnis für Teilnehmer**: optional wird nach der Abgabe die Prozentzahl je Themenbereich angezeigt (nie Lösungen).
 
+## Mehrsprachigkeit (automatische Übersetzung)
+
+Fragen und Oberfläche werden auf Deutsch gepflegt und maschinell in weitere Sprachen übersetzt. Teilnehmer wählen die Sprache oben rechts
+oder über den Link (`/t/<token>?lang=pl`); die Wahl bleibt beim Wechsel erhalten (Antworten, Timer, Position).
+
+- **Sprachen** festlegen: `ENABLED_LANGS` in der `.env` (Komma-Liste, Standard `en,pl,tr,ro,fr,es,it,nl,cs,hu,ru,uk,ar`). Deutsch ist immer die Quelle.
+- **Übersetzer:** Standard ist der Container `translate` (LibreTranslate, kostenlos, Texte bleiben im Haus). Er lädt nur die aktivierten Sprachen (Speicherbedarf einplanen, grob 2–4 GB).
+  Optional für bessere Qualität: `DEEPL_API_KEY` setzen, dann wird DeepL genutzt (Texte gehen an DeepL).
+- **Admin → Sprachen:** je Sprache „Alles übersetzen“ (Oberfläche, Themen, Abfragen, Fragen), danach Texte prüfen/korrigieren und als „geprüft“ markieren.
+  Ändert sich der deutsche Originaltext, wird die Übersetzung als „veraltet“ angezeigt und beim nächsten Lauf neu übersetzt (geprüfte, aktuelle Übersetzungen bleiben unberührt).
+- Eine Sprache erscheint für Teilnehmer erst, wenn ihre Oberfläche übersetzt ist; fehlende Inhalte werden auf Deutsch angezeigt.
+- Die Bewertung ist sprachunabhängig (Antwort-IDs bleiben gleich). **Kurztext-Fragen** werden in Fremdsprachen nicht automatisch bewertet, sondern vom Ausbilder.
+- Nicht übersetzt werden Texte in Bildern. Der Admin-Bereich bleibt deutsch.
+
 ## Betrieb hinter einem Reverse-Proxy / unter einem Unterpfad
 
 Für `https://example.de/wissen` in der `.env` `BASE_PATH=/wissen` setzen und neu bauen (`docker compose up -d --build`).

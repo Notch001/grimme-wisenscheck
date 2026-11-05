@@ -1,12 +1,13 @@
 // Darstellung der Aufgaben für Teilnehmer. Jede View ruft onChange(response | null) bei Änderungen auf.
 import { h, url } from './dom.js';
+import { t } from './i18n.js';
 import { drawEditor } from './draw.js';
 
 const lettered = (i) => String.fromCharCode(97 + i) + ')';
 
 function imageBlock(q, extra) {
   if (!q.image) return null;
-  const img = h('img', { src: url(q.image), alt: 'Aufgabenbild', draggable: 'false' });
+  const img = h('img', { src: url(q.image), alt: t('q.img.alt'), draggable: 'false' });
   return h('div', { class: 'imgwrap' }, img, extra);
 }
 
@@ -20,7 +21,7 @@ const views = {
       }, h('span', { class: 'mark radio' }), h('span', {}, o.text))));
     };
     draw();
-    return h('div', {}, h('p', { class: 'hint' }, 'Eine Antwort auswählen.'), wrap);
+    return h('div', {}, h('p', { class: 'hint' }, t('q.single.hint')), wrap);
   },
 
   multi(q, resp, onChange) {
@@ -33,7 +34,7 @@ const views = {
       }, h('span', { class: 'mark check' }), h('span', {}, o.text))));
     };
     draw();
-    return h('div', {}, h('p', { class: 'hint' }, 'Mehrere Antworten möglich – wähle alle zutreffenden aus.'), wrap);
+    return h('div', {}, h('p', { class: 'hint' }, t('q.multi.hint')), wrap);
   },
 
   strike(q, resp, onChange) {
@@ -46,7 +47,7 @@ const views = {
       }, h('span', { class: 'mark x' }, '✕'), h('span', { class: 'txt' }, o.text))));
     };
     draw();
-    return h('div', {}, h('p', { class: 'hint' }, 'Tippe auf die falschen Aussagen, um sie durchzustreichen.'), wrap);
+    return h('div', {}, h('p', { class: 'hint' }, t('q.strike.hint')), wrap);
   },
 
   order(q, resp, onChange) {
@@ -63,13 +64,13 @@ const views = {
         ondrop: (e) => { e.preventDefault(); if (dragIdx === null || dragIdx === i) return; const [m] = order.splice(dragIdx, 1); order.splice(i, 0, m); dragIdx = null; onChange({ order: order.map((x) => x.id) }); draw(); },
       },
       h('span', { class: 'grip', 'aria-hidden': 'true' }, '⋮⋮'),
-      h('span', { class: 'num' }, `Schritt ${i + 1}`),
+      h('span', { class: 'num' }, t('q.order.step', { n: i + 1 })),
       h('span', { class: 'grow' }, it.text),
-      h('button', { type: 'button', class: 'btn icon', 'aria-label': 'nach oben', disabled: i === 0, onclick: () => move(i, -1) }, '↑'),
-      h('button', { type: 'button', class: 'btn icon', 'aria-label': 'nach unten', disabled: i === order.length - 1, onclick: () => move(i, 1) }, '↓'))));
+      h('button', { type: 'button', class: 'btn icon', 'aria-label': t('q.order.up'), disabled: i === 0, onclick: () => move(i, -1) }, '↑'),
+      h('button', { type: 'button', class: 'btn icon', 'aria-label': t('q.order.down'), disabled: i === order.length - 1, onclick: () => move(i, 1) }, '↓'))));
     };
     draw();
-    return h('div', {}, h('p', { class: 'hint' }, 'Bringe die Schritte in die richtige Reihenfolge (ziehen oder Pfeile nutzen).'), list);
+    return h('div', {}, h('p', { class: 'hint' }, t('q.order.hint')), list);
   },
 
   match(q, resp, onChange) {
@@ -78,20 +79,20 @@ const views = {
       const sel = h('select', {
         'aria-label': l.text,
         onchange: () => { if (sel.value) pairs[l.id] = sel.value; else delete pairs[l.id]; onChange(Object.keys(pairs).length ? { pairs: { ...pairs } } : null); sel.classList.toggle('filled', !!sel.value); },
-      }, h('option', { value: '' }, '– wählen –'), q.config.right.map((r) => h('option', { value: r.id, selected: pairs[l.id] === r.id }, r.text)));
+      }, h('option', { value: '' }, t('q.match.choose')), q.config.right.map((r) => h('option', { value: r.id, selected: pairs[l.id] === r.id }, r.text)));
       sel.classList.toggle('filled', !!pairs[l.id]);
       return h('div', { class: 'matchrow' }, h('div', { class: 'ml' }, h('b', {}, lettered(i)), ' ', l.text), sel);
     });
-    return h('div', {}, h('p', { class: 'hint' }, 'Wähle zu jeder Zeile die passende Zuordnung.'), q.image ? imageBlock(q) : null, h('div', { class: 'matchlist' }, rows));
+    return h('div', {}, h('p', { class: 'hint' }, t('q.match.hint')), q.image ? imageBlock(q) : null, h('div', { class: 'matchlist' }, rows));
   },
 
   number(q, resp, onChange) {
-    const inp = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'Wert eingeben', value: resp?.value ?? '', oninput: () => onChange(inp.value.trim() ? { value: inp.value } : null) });
-    return h('div', {}, h('p', { class: 'hint' }, 'Gib das Ergebnis als Zahl ein (Komma oder Punkt).'), h('div', { class: 'numinput' }, inp, q.config.unit ? h('span', { class: 'unit' }, q.config.unit) : null));
+    const inp = h('input', { type: 'text', inputmode: 'decimal', placeholder: t('q.number.placeholder'), value: resp?.value ?? '', oninput: () => onChange(inp.value.trim() ? { value: inp.value } : null) });
+    return h('div', {}, h('p', { class: 'hint' }, t('q.number.hint')), h('div', { class: 'numinput' }, inp, q.config.unit ? h('span', { class: 'unit' }, q.config.unit) : null));
   },
 
   text(q, resp, onChange) {
-    const inp = h('input', { type: 'text', placeholder: 'Antwort eingeben', value: resp?.value ?? '', oninput: () => onChange(inp.value.trim() ? { value: inp.value } : null) });
+    const inp = h('input', { type: 'text', placeholder: t('q.text.placeholder'), value: resp?.value ?? '', oninput: () => onChange(inp.value.trim() ? { value: inp.value } : null) });
     return h('div', { class: 'numinput' }, inp);
   },
 
@@ -110,7 +111,7 @@ const views = {
       layer.replaceChildren(...Object.entries(placements).map(([lid, p]) => {
         const l = q.config.labels.find((x) => x.id === lid);
         return h('button', {
-          type: 'button', class: 'pin', style: { left: p.x + '%', top: p.y + '%' }, title: 'Zum Entfernen anklicken',
+          type: 'button', class: 'pin', style: { left: p.x + '%', top: p.y + '%' }, title: t('q.pin.remove'),
           onclick: (e) => { e.stopPropagation(); delete placements[lid]; onChange(Object.keys(placements).length ? { placements: { ...placements } } : null); draw(); },
         }, l?.text || '?');
       }));
@@ -122,7 +123,7 @@ const views = {
       active = null; onChange({ placements: { ...placements } }); draw();
     });
     draw();
-    return h('div', {}, h('p', { class: 'hint' }, 'Wähle eine Bezeichnung und klicke dann auf die passende Stelle im Bild. Platzierte Bezeichnungen lassen sich per Klick wieder entfernen.'), bank, wrap);
+    return h('div', {}, h('p', { class: 'hint' }, t('q.imagelabel.hint')), bank, wrap);
   },
 
   hotspot(q, resp, onChange) {
@@ -132,9 +133,9 @@ const views = {
     const wrap = imageBlock(q, layer);
     wrap.classList.add('clickable', 'crosshair');
     const draw = () => {
-      counter.textContent = `${points.length} Markierung${points.length === 1 ? '' : 'en'} gesetzt`;
+      counter.textContent = t(points.length === 1 ? 'q.hotspot.count.one' : 'q.hotspot.count.many', { n: points.length });
       layer.replaceChildren(...points.map((p, i) => h('button', {
-        type: 'button', class: 'dot', style: { left: p.x + '%', top: p.y + '%' }, title: 'Zum Entfernen anklicken',
+        type: 'button', class: 'dot', style: { left: p.x + '%', top: p.y + '%' }, title: t('q.pin.remove'),
         onclick: (e) => { e.stopPropagation(); points.splice(i, 1); onChange(points.length ? { points: [...points] } : null); draw(); },
       })));
     };
@@ -145,7 +146,7 @@ const views = {
       onChange({ points: [...points] }); draw();
     });
     draw();
-    return h('div', {}, h('p', { class: 'hint' }, 'Klicke in das Bild, um Markierungen zu setzen. Ein Klick auf eine Markierung entfernt sie wieder.'), wrap, h('div', { class: 'row' }, counter));
+    return h('div', {}, h('p', { class: 'hint' }, t('q.hotspot.hint')), wrap, h('div', { class: 'row' }, counter));
   },
 
   drawing(q, resp, onChange) {
@@ -154,8 +155,8 @@ const views = {
   },
 
   practical(q, resp, onChange) {
-    const ta = h('textarea', { rows: 3, placeholder: 'z. B. Messwert oder Anmerkungen notieren (optional)', oninput: () => onChange(ta.value.trim() ? { note: ta.value } : null) }, resp?.note || '');
-    return h('div', {}, h('div', { class: 'callout' }, h('b', {}, 'Praktische Aufgabe. '), q.config.note || 'Wird vor Ort vom Ausbilder bewertet.'), q.image ? imageBlock(q) : null, ta);
+    const ta = h('textarea', { rows: 3, placeholder: t('q.practical.placeholder'), oninput: () => onChange(ta.value.trim() ? { note: ta.value } : null) }, resp?.note || '');
+    return h('div', {}, h('div', { class: 'callout' }, h('b', {}, t('q.practical.title') + ' '), q.config.note || t('q.practical.default')), q.image ? imageBlock(q) : null, ta);
   },
 };
 

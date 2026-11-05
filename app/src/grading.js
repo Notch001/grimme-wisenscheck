@@ -83,6 +83,8 @@ export function grade(q, resp) {
     }
 
     case 'text': {
+      // Akzeptierte Antworten sind deutsch: Eingaben in anderer Sprache bewertet der Ausbilder
+      if (r.lang && r.lang !== 'de') return String(r.value ?? '').trim() ? null : 0;
       const accepted = arr(c.accepted).map((s) => String(s).trim().toLowerCase()).filter(Boolean);
       if (!accepted.length) return null;
       const v = String(r.value ?? '').trim().toLowerCase();

@@ -1,0 +1,16 @@
+/* Mehrsprachigkeit: Sprachumschalter und Rechts-nach-links-Sprachen (dir="rtl") */
+.langsw { width: auto; min-width: 0; max-width: 11rem; padding: .3rem .5rem; font-size: .9rem; min-height: 0; }
+.langsw.solo { margin-inline-start: auto; }
+.arr { display: inline-block; }
+.p-head .progress { margin-inline: auto; }
+
+html[dir="rtl"] .arr { transform: scaleX(-1); }
+html[dir="rtl"] .p-head .who, html[dir="rtl"] .timer { margin-left: 0; margin-right: auto; }
+html[dir="rtl"] .timer ~ .who { margin-right: 0; }
+html[dir="rtl"] .choice, html[dir="rtl"] .myresults { text-align: right; }
+html[dir="rtl"] .tpct { text-align: left; }
+html[dir="rtl"] .facts { padding-left: 0; padding-right: 1.1rem; }
+html[dir="rtl"] .callout { border-left: 0; border-right: 4px solid var(--accent); }
+/* Bild- und Zeichenflächen sowie Zahlenfelder bleiben links-nach-rechts (Koordinaten, Ziffern) */
+html[dir="rtl"] .imgwrap, html[dir="rtl"] .draw-canvas { direction: ltr; }
+html[dir="rtl"] .numinput input { direction: ltr; text-align: right; }
